@@ -16,6 +16,8 @@ import ZoneManagement from './components/ZoneManagement';
 import FleetManagement from './components/FleetManagement';
 import LogsViewer from './components/LogsViewer';
 
+
+
 const AppContent: React.FC = () => {
   const { user, isLoading } = useAuth();
   const [activeView, setActiveView] = useState('dashboard');

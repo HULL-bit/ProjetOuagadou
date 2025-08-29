@@ -15,7 +15,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-me-in-producti
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = ['*']  # Allow all hosts for development in Replit
+ALLOWED_HOSTS = ['*'] 
 
 # Application definition
 DJANGO_APPS = [
@@ -35,12 +35,12 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     # Temporarily disabled complex apps for initial setup
-    # 'apps.users',
-    # 'apps.tracking', 
-    # 'apps.alerts',
-    # 'apps.communication',
-    # 'apps.zones',
-    # 'apps.weather',
+    'apps.users',
+    'apps.tracking', 
+    'apps.alerts',
+    'apps.communication',
+    'apps.zones',
+    'apps.weather',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -88,6 +88,7 @@ DATABASES = {
         'PORT': config('PGPORT', default=config('DB_PORT', default='5432')),
     }
 }
+AUTH_USER_MODEL = "users.User"
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -141,9 +142,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5000",
     "http://127.0.0.1:5000",
-    "https://*.repl.co",
-    "https://*.replit.dev", 
-    "https://*.replit.app",
+    
 ]
 
 CORS_ALLOW_CREDENTIALS = True

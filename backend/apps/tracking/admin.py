@@ -1,13 +1,14 @@
 from django.contrib import admin
-from django.contrib.gis.admin import OSMGeoAdmin
+from django.contrib.gis.admin import GISModelAdmin
+
 from .models import Location, Trip, TrackerDevice
 
 @admin.register(Location)
-class LocationAdmin(OSMGeoAdmin):
+class LocationAdmin(GISModelAdmin):
     list_display = ['user', 'latitude', 'longitude', 'speed', 'timestamp']
     list_filter = ['timestamp', 'user__role']
     search_fields = ['user__username', 'user__email']
-    readonly_fields = ['position', 'created_at']
+    readonly_fields = ['created_at']
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('user')

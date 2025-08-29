@@ -83,9 +83,9 @@ const LoginForm: React.FC = () => {
               </div>
               
               <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent mb-2">
-                PIROGUE CONNECT
+                PIROGUE-SMART
               </h1>
-              <p className="text-gray-600 font-medium">Système de Gestion Maritime</p>
+              <p className="text-gray-600 font-medium">Système Intelligent de Gestion Maritime</p>
               <div className="flex items-center justify-center mt-2 text-sm text-gray-500">
                 <Anchor className="w-4 h-4 mr-1" />
                 <span>Cayar, Sénégal</span>
@@ -206,7 +206,7 @@ const LoginForm: React.FC = () => {
                     <span>admin@pirogue-connect.sn</span>
                   </div>
                   <div className="text-center pt-2 border-t border-gray-200 text-gray-500">
-                    Mot de passe: <span className="font-mono">password</span>
+                    Mot de passe: <span className="font-mono">password123</span>
                   </div>
                 </div>
               </div>

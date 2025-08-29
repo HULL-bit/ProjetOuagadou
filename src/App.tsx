@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 import LoginForm from './components/LoginForm';
-import Navigation from './components/Navigation';
+import WagaduInspiredHeader from './components/WagaduInspiredHeader';
 import Dashboard from './components/Dashboard';
 import MapView from './components/MapView';
 import EmergencyButton from './components/EmergencyButton';
@@ -111,10 +111,10 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="flex bg-gray-50 min-h-screen">
-      <Navigation activeView={activeView} onViewChange={setActiveView} />
+    <div className="bg-gray-50 min-h-screen">
+      <WagaduInspiredHeader activeView={activeView} onViewChange={setActiveView} />
       
-      <main className="flex-1 overflow-hidden relative">
+      <main className="overflow-hidden relative">
         {renderMainContent()}
       </main>
 

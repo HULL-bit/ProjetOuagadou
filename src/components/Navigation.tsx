@@ -76,7 +76,7 @@ const Navigation: React.FC<NavigationProps> = ({ activeView, onViewChange }) => 
           </div>
           <div>
             <h1 className="text-lg font-bold text-gray-900">PIROGUE</h1>
-            <p className="text-sm text-cyan-600 font-semibold">CONNECT</p>
+            <p className="text-sm text-cyan-600 font-semibold">SMART</p>
           </div>
         </div>
         

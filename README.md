@@ -1,4 +1,4 @@
-# 🚢 PIROGUE CONNECT - Guide de Test Complet
+# 🚢 PIROGUE-SMART - Guide de Test Complet
 
 ## 📋 Prérequis
 
@@ -16,21 +16,33 @@ npm install
 
 ### 2. Configuration Base de Données
 
-#### Option A : Avec Supabase (Recommandé)
-1. Créer un compte sur [supabase.com](https://supabase.com)
-2. Créer un nouveau projet
-3. Copier les clés API depuis Settings > API
-4. Créer le fichier `.env.local` :
+#### Option A : Avec Django + PostgreSQL (Recommandé)
+1. Installer PostgreSQL avec PostGIS
+2. Créer la base de données `pirogue_smart`
+3. Configurer le backend Django
+4. Créer les fichiers `.env` :
 
-```env
-VITE_SUPABASE_URL=https://votre-projet.supabase.co
-VITE_SUPABASE_ANON_KEY=votre-clé-anonyme
+```bash
+# Frontend (.env.local)
+VITE_API_URL=http://localhost:8000/api
+
+# Backend (backend/.env)
+SECRET_KEY=your-secret-key
+DB_NAME=pirogue_smart
+DB_USER=postgres
+DB_PASSWORD=password
 ```
 
-5. Exécuter les migrations dans l'éditeur SQL Supabase :
-   - Copier le contenu de `supabase/migrations/001_initial_schema.sql`
-   - Coller dans l'éditeur SQL et exécuter
-   - Faire de même avec `002_sample_data.sql`
+5. Lancer le backend Django :
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# ou venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver
+```
 
 #### Option B : PostgreSQL Local
 ```bash

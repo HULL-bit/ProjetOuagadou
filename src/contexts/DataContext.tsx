@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { supabase, supabaseHelpers } from '../lib/supabase';
+import { trackingAPI, alertsAPI, communicationAPI, zonesAPI, weatherAPI } from '../lib/api';
 import { logger } from '../lib/logger';
 import { weatherService } from '../lib/weatherApi';
 import { testPirogues, pirogueSimulator } from '../lib/testData';

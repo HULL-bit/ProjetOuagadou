@@ -162,28 +162,28 @@ const Dashboard: React.FC = () => {
       case 'fisherman':
         return {
           title: `Bienvenue à bord, ${user.profile.fullName}`,
-          subtitle: 'Votre tableau de bord personnel pour une navigation sécurisée',
+          subtitle: 'Votre tableau de bord intelligent pour une navigation moderne et sécurisée',
           accent: user.profile.boatName ? `Pirogue ${user.profile.boatName}` : '',
           bgImage: 'https://images.pexels.com/photos/1295138/pexels-photo-1295138.jpeg?auto=compress&cs=tinysrgb&w=1920&h=400&fit=crop'
         };
       case 'organization':
         return {
-          title: 'Centre de Coordination GIE',
-          subtitle: 'Surveillance et gestion de la flotte de pêche',
+          title: 'Centre de Coordination Intelligent',
+          subtitle: 'Surveillance avancée et gestion optimisée de la flotte',
           accent: 'Cayar - Sénégal',
           bgImage: 'https://images.pexels.com/photos/1001682/pexels-photo-1001682.jpeg?auto=compress&cs=tinysrgb&w=1920&h=400&fit=crop'
         };
       case 'admin':
         return {
-          title: 'Administration Système',
-          subtitle: 'Monitoring et configuration de la plateforme',
-          accent: 'Pirogue Connect',
+          title: 'Administration PIROGUE-SMART',
+          subtitle: 'Monitoring intelligent et configuration avancée',
+          accent: 'Système Intelligent',
           bgImage: 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=1920&h=400&fit=crop'
         };
       default:
         return {
-          title: 'Tableau de Bord',
-          subtitle: 'Bienvenue sur la plateforme',
+          title: 'PIROGUE-SMART',
+          subtitle: 'Plateforme intelligente de gestion maritime',
           accent: '',
           bgImage: 'https://images.pexels.com/photos/1295138/pexels-photo-1295138.jpeg?auto=compress&cs=tinysrgb&w=1920&h=400&fit=crop'
         };

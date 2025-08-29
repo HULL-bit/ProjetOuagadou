@@ -1,5 +1,5 @@
 {
-  "name": "pirogue-connect",
+  "name": "pirogue-smart",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,8 +10,9 @@
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
     "test": "echo \"Tests will be added in next phase\"",
-    "db:migrate": "echo \"Run migrations in Supabase SQL editor\"",
-    "db:seed": "echo \"Sample data included in migrations\"",
+    "django:setup": "cd backend && python -m venv venv && source venv/bin/activate && pip install -r requirements.txt",
+    "django:migrate": "cd backend && python manage.py migrate",
+    "django:runserver": "cd backend && python manage.py runserver",
     "start": "npm run dev",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf node_modules package-lock.json && npm install",
@@ -20,7 +21,7 @@
   },
   "dependencies": {
     "20": "^3.1.9",
-    "@supabase/supabase-js": "^2.39.0",
+    "axios": "^1.11.0",
     "date-fns": "^3.0.6",
     "framer-motion": "^10.16.16",
     "leaflet": "^1.9.4",

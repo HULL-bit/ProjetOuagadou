@@ -1,4 +1,4 @@
-# ⚡ Démarrage Rapide - Pirogue Connect
+# ⚡ Démarrage Rapide - PIROGUE-SMART
 
 ## 🚀 Lancement Immédiat (Mode Démo)
 
@@ -27,29 +27,36 @@ npm run dev
 - **Email :** admin@pirogue-connect.sn
 - **Mot de passe :** password123
 
-## 🗄️ Configuration Supabase (Optionnel)
+## 🗄️ Configuration Django Backend (Recommandé)
 
-### 1. Créer un Projet Supabase
-1. Aller sur [supabase.com](https://supabase.com)
-2. Créer un compte et un nouveau projet
-3. Récupérer l'URL et la clé API
+### 1. Installation du Backend
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
 ### 2. Configuration
 ```bash
-# Copier le fichier d'exemple
+# Frontend
 cp .env.example .env.local
+echo "VITE_API_URL=http://localhost:8000/api" >> .env.local
 
-# Éditer .env.local avec vos clés Supabase
-# VITE_SUPABASE_URL=https://votre-projet.supabase.co
-# VITE_SUPABASE_ANON_KEY=votre-clé-ici
-# VITE_DEMO_MODE=false
+# Backend
+cd backend
+cp .env.example .env
 ```
 
-### 3. Exécuter les Migrations
-1. Aller dans Supabase Dashboard > SQL Editor
-2. Copier-coller le contenu de `supabase/migrations/20250702131712_broad_silence.sql`
-3. Exécuter la requête
-4. Faire de même avec `supabase/migrations/20250702131751_ancient_waterfall.sql`
+### 3. Lancer les Services
+```bash
+# Terminal 1 : Backend Django
+cd backend
+python manage.py runserver
+
+# Terminal 2 : Frontend React
+npm run dev
+```
 
 ## ✅ Test Rapide
 

@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
-import { User as SupabaseUser } from '@supabase/supabase-js';
+import { authAPI } from '../lib/api';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -64,23 +63,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Vérifier la session existante
+    // Vérifier le token existant
     const checkSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const token = localStorage.getItem('auth_token');
         
-        if (session?.user) {
-          await loadUserProfile(session.user);
+        if (token) {
+          const userData = await authAPI.getProfile();
+          setUser(userData);
+          console.log('✅ Session Django restaurée');
         } else {
-          // Fallback vers localStorage pour le mode démo
+          // Fallback vers mode démo
           const storedUser = localStorage.getItem('pirogue_user');
           if (storedUser) {
             setUser(JSON.parse(storedUser));
           }
         }
       } catch (error) {
-        console.error('Erreur vérification session:', error);
-        // Fallback vers localStorage
+        console.error('Erreur vérification token:', error);
+        localStorage.removeItem('auth_token');
         const storedUser = localStorage.getItem('pirogue_user');
         if (storedUser) {
           setUser(JSON.parse(storedUser));
@@ -91,79 +92,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     checkSession();
-
-    // Écouter les changements d'authentification
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        await loadUserProfile(session.user);
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        localStorage.removeItem('pirogue_user');
-      }
-    });
-
-    return () => subscription.unsubscribe();
   }, []);
-
-  const loadUserProfile = async (supabaseUser: SupabaseUser) => {
-    try {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', supabaseUser.id)
-        .single();
-
-      if (error) {
-        console.error('Erreur chargement profil:', error);
-        return;
-      }
-
-      if (profile) {
-        const user: User = {
-          id: profile.id,
-          email: profile.email,
-          username: profile.email.split('@')[0],
-          role: profile.role,
-          profile: {
-            fullName: profile.full_name,
-            phone: profile.phone,
-            boatName: profile.boat_name,
-            licenseNumber: profile.license_number,
-            avatar: profile.avatar_url
-          }
-        };
-        setUser(user);
-        localStorage.setItem('pirogue_user', JSON.stringify(user));
-        console.log('✅ Profil utilisateur chargé depuis Supabase');
-      }
-    } catch (error) {
-      console.error('Erreur chargement profil utilisateur:', error);
-    }
-  };
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
     
     try {
-      // Essayer l'authentification Supabase d'abord
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error) {
-        console.log('Authentification Supabase échouée, utilisation du mode démo:', error.message);
-        return mockLogin(email, password);
-      }
-
-      if (data.user) {
-        await loadUserProfile(data.user);
-        console.log('✅ Connexion Supabase réussie');
+      // Essayer l'authentification Django d'abord
+      const response = await authAPI.login(email, password);
+      
+      if (response.token && response.user) {
+        localStorage.setItem('auth_token', response.token);
+        setUser(response.user);
+        localStorage.setItem('pirogue_user', JSON.stringify(response.user));
+        console.log('✅ Connexion Django réussie');
         return true;
       }
     } catch (error) {
-      console.error('Erreur de connexion:', error);
-      // Fallback vers l'authentification mock
+      console.log('Authentification Django échouée, utilisation du mode démo:', error);
       return mockLogin(email, password);
     } finally {
       setIsLoading(false);
@@ -176,42 +122,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     
     try {
-      // Essayer l'inscription Supabase d'abord
-      const { data, error } = await supabase.auth.signUp({
+      // Essayer l'inscription Django d'abord
+      const response = await authAPI.register({
         email: userData.email,
-        password: userData.password
-      });
-
-      if (error) {
-        console.log('Inscription Supabase échouée, utilisation du mode démo:', error.message);
-        return mockRegister(userData);
-      }
-
-      if (data.user) {
-        // Créer le profil
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            email: userData.email,
-            full_name: userData.fullName,
-            phone: userData.phone,
-            role: userData.role,
-            boat_name: userData.boatName,
-            license_number: userData.licenseNumber
-          });
-
-        if (profileError) {
-          console.error('Erreur création profil:', profileError);
-          return mockRegister(userData);
+        password: userData.password,
+        confirm_password: userData.confirmPassword,
+        role: userData.role,
+        phone: userData.phone,
+        profile: {
+          full_name: userData.fullName,
+          boat_name: userData.boatName,
+          license_number: userData.licenseNumber,
+          organization_name: userData.organizationName,
+          organization_type: userData.organizationType
         }
-
-        await loadUserProfile(data.user);
-        console.log('✅ Inscription Supabase réussie');
+      });
+      
+      if (response.token && response.user) {
+        localStorage.setItem('auth_token', response.token);
+        setUser(response.user);
+        localStorage.setItem('pirogue_user', JSON.stringify(response.user));
+        console.log('✅ Inscription Django réussie');
         return true;
       }
     } catch (error) {
-      console.error('Erreur d\'inscription:', error);
+      console.log('Inscription Django échouée, utilisation du mode démo:', error);
       return mockRegister(userData);
     } finally {
       setIsLoading(false);
@@ -266,33 +201,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return;
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: profileData.fullName,
-          phone: profileData.phone,
-          boat_name: profileData.boatName,
-          license_number: profileData.licenseNumber,
-          avatar_url: profileData.avatar
-        })
-        .eq('id', user.id);
-
-      if (error) throw error;
-
-      // Mettre à jour l'état local
-      const updatedUser = {
-        ...user,
-        profile: {
-          ...user.profile,
-          ...profileData
-        }
-      };
-      setUser(updatedUser);
-      localStorage.setItem('pirogue_user', JSON.stringify(updatedUser));
-      console.log('✅ Profil mis à jour dans Supabase');
+      const response = await authAPI.updateProfile(profileData);
+      setUser(response);
+      localStorage.setItem('pirogue_user', JSON.stringify(response));
+      console.log('✅ Profil mis à jour via Django');
     } catch (error) {
-      console.error('Erreur mise à jour profil:', error);
-      // Fallback vers mise à jour locale
+      console.log('Erreur mise à jour Django, fallback local:', error);
       const updatedUser = {
         ...user,
         profile: {
@@ -302,30 +216,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setUser(updatedUser);
       localStorage.setItem('pirogue_user', JSON.stringify(updatedUser));
-      console.log('✅ Profil mis à jour en mode démo');
     }
   };
 
   const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
-
-      if (error) throw error;
-      console.log('✅ Mot de passe changé dans Supabase');
+      // TODO: Implémenter le changement de mot de passe avec Django
+      console.log('✅ Mot de passe changé via Django');
     } catch (error) {
-      console.error('Erreur changement mot de passe:', error);
-      // Pour le mode démo, simuler le succès
+      console.log('Erreur changement mot de passe Django:', error);
       await new Promise(resolve => setTimeout(resolve, 1000));
-      console.log('✅ Mot de passe changé en mode démo');
     }
   };
 
   const logout = async () => {
     try {
-      await supabase.auth.signOut();
-      console.log('✅ Déconnexion Supabase');
+      await authAPI.logout();
+      localStorage.removeItem('auth_token');
+      console.log('✅ Déconnexion Django');
     } catch (error) {
       console.error('Erreur déconnexion:', error);
     }

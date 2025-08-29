@@ -4,9 +4,34 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
+        sans: ['Poppins', 'Inter', 'sans-serif'],
+        heading: ['Poppins', 'sans-serif'],
       },
       colors: {
+        wagadu: {
+          50: '#fef7ed',
+          100: '#fdecd3',
+          200: '#fbd5a5',
+          300: '#f7b76d',
+          400: '#f59332',
+          500: '#f3770a',
+          600: '#e45d05',
+          700: '#bd4508',
+          800: '#96370e',
+          900: '#792f0f',
+        },
+        african: {
+          50: '#f0f9f4',
+          100: '#dcf2e4',
+          200: '#bce5cd',
+          300: '#8dd1a8',
+          400: '#57b67c',
+          500: '#339b5a',
+          600: '#267d46',
+          700: '#1f6339',
+          800: '#1c4f2f',
+          900: '#184127',
+        },
         maritime: {
           50: '#f0f9ff',
           100: '#e0f2fe',

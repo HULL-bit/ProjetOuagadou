@@ -193,61 +193,79 @@ const Dashboard: React.FC = () => {
   const welcome = getRoleSpecificWelcome();
 
   return (
-    <div className="p-6 space-y-6 bg-gray-50 min-h-full">
-      {/* Enhanced welcome header with background image */}
+    <div className="p-8 space-y-8 min-h-full">
+      {/* Ultra-modern welcome header */}
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="relative bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-2xl overflow-hidden shadow-2xl"
+        transition={{ duration: 0.8 }}
+        className="relative bg-white/80 backdrop-blur-2xl rounded-3xl overflow-hidden shadow-2xl border border-white/20"
       >
-        <div 
-          className="absolute inset-0 bg-cover bg-center opacity-20"
-          style={{ backgroundImage: `url('${welcome.bgImage}')` }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-cyan-600/90 to-blue-600/90" />
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-blue-50/50 to-cyan-50/80" />
+        <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-cyan-200/20 via-blue-200/10 to-transparent rounded-full -translate-y-48 translate-x-48" />
+        <div className="absolute bottom-0 left-0 w-72 h-72 bg-gradient-to-tr from-blue-200/20 via-cyan-200/10 to-transparent rounded-full translate-y-36 -translate-x-36" />
         
         <div className="relative p-8">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <motion.h1 
-                initial={{ x: -20, opacity: 0 }}
+              <motion.div
+                initial={{ x: -30, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.2, duration: 0.6 }}
-                className="text-3xl font-bold mb-3"
+                transition={{ delay: 0.3, duration: 0.8 }}
+                className="flex items-center space-x-4 mb-6"
               >
-                {welcome.title}
-              </motion.h1>
-              <motion.p 
-                initial={{ x: -20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.3, duration: 0.6 }}
-                className="text-cyan-100 mb-2 text-lg"
-              >
-                {welcome.subtitle}
-              </motion.p>
+                <div className="relative">
+                  <div className="w-16 h-16 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-xl">
+                    <Ship className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow-lg">
+                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                  </div>
+                </div>
+                <div>
+                  <motion.h1 
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.4, duration: 0.8 }}
+                    className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-slate-700 to-slate-600 bg-clip-text text-transparent"
+                  >
+                    {welcome.title}
+                  </motion.h1>
+                  <motion.p 
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.5, duration: 0.8 }}
+                    className="text-slate-600 text-lg mt-1"
+                  >
+                    {welcome.subtitle}
+                  </motion.p>
+                </div>
+              </motion.div>
+              
               {welcome.accent && (
                 <motion.div 
                   initial={{ x: -20, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
-                  transition={{ delay: 0.4, duration: 0.6 }}
+                  transition={{ delay: 0.6, duration: 0.8 }}
                   className="flex items-center"
                 >
-                  <Anchor className="w-5 h-5 mr-2" />
-                  <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">
-                    {welcome.accent}
-                  </span>
+                  <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 backdrop-blur-sm border border-cyan-200/30 px-4 py-2 rounded-full flex items-center space-x-2">
+                    <Anchor className="w-4 h-4 text-cyan-600" />
+                    <span className="text-sm font-semibold text-slate-700">
+                      {welcome.accent}
+                    </span>
+                  </div>
                 </motion.div>
               )}
             </div>
             
             <motion.div 
-              initial={{ x: 20, opacity: 0 }}
+              initial={{ x: 30, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.5, duration: 0.6 }}
-              className="text-right"
+              transition={{ delay: 0.7, duration: 0.8 }}
+              className="text-right bg-white/60 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg"
             >
-              <p className="text-cyan-100 text-sm mb-1">
+              <p className="text-slate-500 text-sm mb-2 font-medium">
                 {new Date().toLocaleDateString('fr-FR', {
                   weekday: 'long',
                   year: 'numeric',
@@ -255,23 +273,21 @@ const Dashboard: React.FC = () => {
                   day: 'numeric'
                 })}
               </p>
-              <p className="text-white font-bold text-2xl">
+              <p className="text-slate-800 font-bold text-3xl mb-3">
                 {new Date().toLocaleTimeString('fr-FR', {
                   hour: '2-digit',
                   minute: '2-digit'
                 })}
               </p>
               {weather && (
-                <div className="mt-2 text-sm text-cyan-100">
-                  <div className="flex items-center justify-end space-x-4">
-                    <div className="flex items-center">
-                      <Thermometer className="w-4 h-4 mr-1" />
-                      {weather.temperature}°C
-                    </div>
-                    <div className="flex items-center">
-                      <Wind className="w-4 h-4 mr-1" />
-                      {weather.windSpeed} kt
-                    </div>
+                <div className="flex items-center justify-end space-x-4 text-sm">
+                  <div className="flex items-center bg-cyan-50/80 px-3 py-1.5 rounded-lg border border-cyan-200/30">
+                    <Thermometer className="w-4 h-4 mr-1.5 text-cyan-600" />
+                    <span className="font-semibold text-slate-700">{weather.temperature}°C</span>
+                  </div>
+                  <div className="flex items-center bg-blue-50/80 px-3 py-1.5 rounded-lg border border-blue-200/30">
+                    <Wind className="w-4 h-4 mr-1.5 text-blue-600" />
+                    <span className="font-semibold text-slate-700">{weather.windSpeed} kt</span>
                   </div>
                 </div>
               )}
@@ -280,77 +296,118 @@ const Dashboard: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* Enhanced statistics cards */}
+      {/* Ultra-premium statistics cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
           return (
             <motion.div
               key={index}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 * index, duration: 0.6 }}
-              whileHover={{ y: -5, scale: 1.02 }}
-              className="bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-all duration-300 border border-gray-100"
+              initial={{ opacity: 0, y: 30, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ delay: 0.1 * index, duration: 0.8, type: "spring", stiffness: 100 }}
+              whileHover={{ y: -8, scale: 1.03 }}
+              className="group bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-500 border border-white/20 relative overflow-hidden"
             >
-              <div className="flex items-center justify-between mb-4">
-                <div className={`p-3 rounded-xl bg-gradient-to-r ${stat.color}`}>
-                  <Icon className="w-6 h-6 text-white" />
+              {/* Background gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-slate-50/30 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              
+              {/* Floating decoration */}
+              <div className="absolute top-4 right-4 w-20 h-20 bg-gradient-to-br from-cyan-200/10 to-blue-200/10 rounded-full blur-2xl" />
+              
+              <div className="relative p-6">
+                <div className="flex items-start justify-between mb-6">
+                  <div className={`relative p-3 rounded-2xl bg-gradient-to-r ${stat.color} shadow-lg group-hover:shadow-xl transition-shadow duration-300`}>
+                    <Icon className="w-6 h-6 text-white relative z-10" />
+                    <div className="absolute inset-0 bg-white/20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  </div>
+                  <div className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${stat.bgColor} ${stat.textColor} bg-opacity-80 backdrop-blur-sm`}>
+                    {stat.trend}
+                  </div>
                 </div>
-                <div className={`px-2 py-1 rounded-full text-xs font-medium ${stat.bgColor} ${stat.textColor}`}>
-                  {stat.trend}
+                
+                <div className="space-y-2">
+                  <p className="text-slate-600 text-sm font-semibold uppercase tracking-wide">{stat.title}</p>
+                  <p className="text-4xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+                    {stat.value}
+                  </p>
+                  <p className="text-slate-500 text-sm">{stat.description}</p>
                 </div>
-              </div>
-              <div>
-                <p className="text-gray-600 text-sm font-medium mb-1">{stat.title}</p>
-                <p className="text-3xl font-bold text-gray-900 mb-1">{stat.value}</p>
-                <p className="text-gray-500 text-xs">{stat.description}</p>
+                
+                {/* Progress indicator */}
+                <div className="mt-4 h-1 bg-slate-100 rounded-full overflow-hidden">
+                  <motion.div 
+                    className={`h-full bg-gradient-to-r ${stat.color} rounded-full`}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${60 + (index * 10)}%` }}
+                    transition={{ delay: 0.5 + (index * 0.1), duration: 1 }}
+                  />
+                </div>
               </div>
             </motion.div>
           );
         })}
       </div>
 
-      {/* Main content grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Enhanced map view */}
+      {/* Premium main content grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Ultra-modern map view */}
         <motion.div 
-          initial={{ opacity: 0, x: -20 }}
+          initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.6, duration: 0.6 }}
+          transition={{ delay: 0.8, duration: 0.8 }}
           className="lg:col-span-2"
         >
-          <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100">
-            <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-gray-100">
+          <div className="bg-white/80 backdrop-blur-2xl rounded-3xl shadow-2xl overflow-hidden border border-white/20 group hover:shadow-3xl transition-all duration-500">
+            <div className="p-6 border-b border-slate-200/50 bg-gradient-to-r from-slate-50/80 to-blue-50/40 backdrop-blur-sm">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-1">Carte Marine - Temps Réel</h2>
-                  <p className="text-sm text-gray-600">Positions des pirogues et zones de sécurité</p>
+                  <h2 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent mb-2">
+                    Carte Marine - Temps Réel
+                  </h2>
+                  <p className="text-slate-600">Positions des pirogues et zones de sécurité</p>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-gray-600">En direct</span>
+                <div className="flex items-center space-x-3">
+                  <div className="relative">
+                    <div className="w-4 h-4 bg-green-500 rounded-full animate-pulse shadow-lg"></div>
+                    <div className="absolute inset-0 bg-green-400 rounded-full animate-ping opacity-20"></div>
+                  </div>
+                  <span className="text-sm font-medium text-slate-600 bg-green-50/80 px-3 py-1 rounded-full border border-green-200/30">
+                    En direct
+                  </span>
+                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
                 </div>
               </div>
             </div>
-            <div className="h-96">
+            <div className="h-[480px] relative">
               <MapView className="h-full" />
+              <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/5 via-transparent to-transparent"></div>
             </div>
           </div>
         </motion.div>
 
-        {/* Enhanced right sidebar */}
+        {/* Premium right sidebar */}
         <motion.div 
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 30 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.8, duration: 0.6 }}
+          transition={{ delay: 1.0, duration: 0.8 }}
           className="space-y-6"
         >
-          {/* Weather widget */}
-          <WeatherWidget />
+          {/* Enhanced weather widget */}
+          <motion.div
+            whileHover={{ scale: 1.02, y: -2 }}
+            className="transition-all duration-300"
+          >
+            <WeatherWidget />
+          </motion.div>
           
-          {/* Alerts panel */}
-          <AlertsPanel />
+          {/* Enhanced alerts panel */}
+          <motion.div
+            whileHover={{ scale: 1.02, y: -2 }}
+            className="transition-all duration-300"
+          >
+            <AlertsPanel />
+          </motion.div>
         </motion.div>
       </div>
     </div>

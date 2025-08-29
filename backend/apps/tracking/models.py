@@ -1,10 +1,10 @@
-from django.contrib.gis.db import models
-from django.contrib.gis.geos import Point
+from django.db import models
 from apps.users.models import User
 
 class Location(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='locations')
-    position = models.PointField(geography=True)
+    # Temporarily disabled PostGIS field - will re-enable when GDAL is available
+    # position = models.PointField(geography=True)
     latitude = models.DecimalField(max_digits=10, decimal_places=8)
     longitude = models.DecimalField(max_digits=11, decimal_places=8)
     speed = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
@@ -22,8 +22,9 @@ class Location(models.Model):
         ]
     
     def save(self, *args, **kwargs):
-        if self.latitude and self.longitude:
-            self.position = Point(float(self.longitude), float(self.latitude))
+        # Temporarily disabled PostGIS functionality
+        # if self.latitude and self.longitude:
+        #     self.position = Point(float(self.longitude), float(self.latitude))
         super().save(*args, **kwargs)
 
 class Trip(models.Model):

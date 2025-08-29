@@ -1,4 +1,4 @@
-from django.contrib.gis.db import models
+from django.db import models
 from apps.users.models import User
 from apps.tracking.models import Location
 

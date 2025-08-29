@@ -8,12 +8,13 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/auth/', include('apps.users.urls')),
-    path('api/tracking/', include('apps.tracking.urls')),
-    path('api/alerts/', include('apps.alerts.urls')),
-    path('api/communication/', include('apps.communication.urls')),
-    path('api/zones/', include('apps.zones.urls')),
-    path('api/weather/', include('apps.weather.urls')),
+    # Temporarily disabled for initial setup
+    # path('api/auth/', include('apps.users.urls')),
+    # path('api/tracking/', include('apps.tracking.urls')),
+    # path('api/alerts/', include('apps.alerts.urls')),
+    # path('api/communication/', include('apps.communication.urls')),
+    # path('api/zones/', include('apps.zones.urls')),
+    # path('api/weather/', include('apps.weather.urls')),
 ]
 
 if settings.DEBUG:

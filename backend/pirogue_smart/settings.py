@@ -15,7 +15,7 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-me-in-producti
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,*.repl.co,*.replit.dev,*.replit.app', cast=lambda v: [s.strip() for s in v.split(',')])
 
 # Application definition
 DJANGO_APPS = [
@@ -25,7 +25,6 @@ DJANGO_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django.contrib.gis',
 ]
 
 THIRD_PARTY_APPS = [
@@ -35,12 +34,13 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
-    'apps.users',
-    'apps.tracking',
-    'apps.alerts',
-    'apps.communication',
-    'apps.zones',
-    'apps.weather',
+    # Temporarily disabled complex apps for initial setup
+    # 'apps.users',
+    # 'apps.tracking', 
+    # 'apps.alerts',
+    # 'apps.communication',
+    # 'apps.zones',
+    # 'apps.weather',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -80,12 +80,12 @@ ASGI_APPLICATION = 'pirogue_smart.asgi.application'
 # Database
 DATABASES = {
     'default': {
-        'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': config('DB_NAME', default='pirogue_smart'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default='password'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('PGDATABASE', default=config('DB_NAME', default='pirogue_smart')),
+        'USER': config('PGUSER', default=config('DB_USER', default='postgres')),
+        'PASSWORD': config('PGPASSWORD', default=config('DB_PASSWORD', default='password')),
+        'HOST': config('PGHOST', default=config('DB_HOST', default='localhost')),
+        'PORT': config('PGPORT', default=config('DB_PORT', default='5432')),
     }
 }
 
@@ -121,8 +121,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Custom user model
-AUTH_USER_MODEL = 'users.User'
+# Custom user model (temporarily disabled)
+# AUTH_USER_MODEL = 'users.User'
 
 # REST Framework
 REST_FRAMEWORK = {
@@ -139,8 +139,11 @@ REST_FRAMEWORK = {
 
 # CORS settings
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+    "https://*.repl.co",
+    "https://*.replit.dev", 
+    "https://*.replit.app",
 ]
 
 CORS_ALLOW_CREDENTIALS = True

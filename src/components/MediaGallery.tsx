@@ -1,516 +1,694 @@
-import React, { useState, useRef } from 'react';
-import { Camera, Video, Upload, Search, Filter, Download, Eye, Trash2, Plus, Image, Play } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '../contexts/AuthContext';
-import { useData } from '../contexts/DataContext';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
+import { supabase, supabaseHelpers } from '../lib/supabaseHelpers';
+import { logger } from '../lib/logger';
+import { weatherService } from '../lib/weatherApi';
+import { testPirogues, pirogueSimulator } from '../lib/testData';
+import { Location, Alert, Message, WeatherCondition, Zone, Trip, User } from '../types';
 
-interface MediaItem {
-  id: string;
-  type: 'photo' | 'video';
-  url: string;
-  thumbnail?: string;
-  title: string;
-  description: string;
-  uploadedBy: string;
-  uploadedAt: string;
-  location?: {
-    latitude: number;
-    longitude: number;
-  };
-  tags: string[];
-  size: number;
-  duration?: number; // pour les vidéos
+interface DataContextType {
+  locations: Location[];
+  alerts: Alert[];
+  messages: Message[];
+  weather: WeatherCondition | null;
+  zones: Zone[];
+  trips: Trip[];
+  users: User[];
+  fleetStats: any;
+  updateLocation: (location: Omit<Location, 'id' | 'timestamp'>) => Promise<void>;
+  sendMessage: (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => Promise<void>;
+  createAlert: (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  acknowledgeAlert: (alertId: string) => Promise<void>;
+  addUser: (userData: any) => Promise<void>;
+  updateUser: (userId: string, userData: any) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
+  uploadFile: (file: File, bucket: string, path: string) => Promise<string>;
+  addZone: (zoneData: any) => Promise<void>;
+  updateZone: (zoneId: string, zoneData: any) => Promise<void>;
+  deleteZone: (zoneId: string) => Promise<void>;
+  refreshData: () => Promise<void>;
+  isLoading: boolean;
 }
 
-const MediaGallery: React.FC = () => {
-  const { user } = useAuth();
-  const { uploadFile } = useData();
-  const [mediaItems, setMediaItems] = useState<MediaItem[]>([
+const DataContext = createContext<DataContextType | undefined>(undefined);
+
+export const useData = () => {
+  const context = useContext(DataContext);
+  if (context === undefined) {
+    throw new Error('useData must be used within a DataProvider');
+  }
+  return context;
+};
+
+// Données de démonstration pour le mode hors ligne
+const mockData = {
+  zones: [
     {
       id: '1',
-      type: 'photo',
-      url: 'https://images.pexels.com/photos/1295138/pexels-photo-1295138.jpeg?auto=compress&cs=tinysrgb&w=800',
-      title: 'Sortie matinale',
-      description: 'Belle prise du matin avec l\'équipe',
-      uploadedBy: 'Amadou Diallo',
-      uploadedAt: '2025-01-02T08:30:00Z',
-      location: { latitude: 14.9325, longitude: -17.1925 },
-      tags: ['pêche', 'matin', 'équipe'],
-      size: 2048576
+      name: 'Zone de Sécurité Cayar',
+      coordinates: [
+        [14.9225, -17.2025],
+        [14.9225, -17.1825],
+        [14.9425, -17.1825],
+        [14.9425, -17.2025],
+        [14.9225, -17.2025]
+      ] as [number, number][],
+      type: 'safety' as const,
+      isActive: true
     },
     {
       id: '2',
-      type: 'video',
-      url: 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4',
-      thumbnail: 'https://images.pexels.com/photos/1001682/pexels-photo-1001682.jpeg?auto=compress&cs=tinysrgb&w=400',
-      title: 'Technique de pêche traditionnelle',
-      description: 'Démonstration de la technique ancestrale',
-      uploadedBy: 'Fatou Sow',
-      uploadedAt: '2025-01-01T15:45:00Z',
-      tags: ['technique', 'tradition', 'formation'],
-      size: 5242880,
-      duration: 120
+      name: 'Zone de Pêche Traditionnelle',
+      coordinates: [
+        [14.9125, -17.2125],
+        [14.9125, -17.1925],
+        [14.9325, -17.1925],
+        [14.9325, -17.2125],
+        [14.9125, -17.2125]
+      ] as [number, number][],
+      type: 'fishing' as const,
+      isActive: true
+    },
+    {
+      id: '3',
+      name: 'Zone Restreinte',
+      coordinates: [
+        [14.9525, -17.1725],
+        [14.9525, -17.1525],
+        [14.9725, -17.1525],
+        [14.9725, -17.1725],
+        [14.9525, -17.1725]
+      ] as [number, number][],
+      type: 'restricted' as const,
+      isActive: true
     }
-  ]);
+  ]
+};
 
-  const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
-  const [showUploadForm, setShowUploadForm] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'photo' | 'video'>('all');
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [weather, setWeather] = useState<WeatherCondition | null>(null);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [fleetStats, setFleetStats] = useState<any>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDjangoConnected, setIsDjangoConnected] = useState(false);
 
-  const [newMedia, setNewMedia] = useState({
-    title: '',
-    description: '',
-    tags: '',
-    file: null as File | null
-  });
+  // Vérifier la connexion Django
+  useEffect(() => {
+    checkDjangoConnection();
+  }, []);
 
-  const filteredMedia = mediaItems.filter(item => {
-    const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesType = filterType === 'all' || item.type === filterType;
-    return matchesSearch && matchesType;
-  });
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 50 * 1024 * 1024) { // 50MB limit
-        alert('Le fichier ne doit pas dépasser 50MB');
-        return;
-      }
-      setNewMedia({ ...newMedia, file });
-    }
-  };
-
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMedia.file || !user) return;
-
-    setIsUploading(true);
+  const checkDjangoConnection = async () => {
     try {
-      const fileType = newMedia.file.type.startsWith('image/') ? 'photo' : 'video';
-      const filePath = `gallery/${user.id}/${Date.now()}-${newMedia.file.name}`;
-      const fileUrl = await uploadFile(newMedia.file, 'gallery', filePath);
-
-      const mediaItem: MediaItem = {
-        id: Date.now().toString(),
-        type: fileType,
-        url: fileUrl,
-        title: newMedia.title,
-        description: newMedia.description,
-        uploadedBy: user.profile.fullName,
-        uploadedAt: new Date().toISOString(),
-        tags: newMedia.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
-        size: newMedia.file.size,
-        duration: fileType === 'video' ? undefined : undefined
-      };
-
-      setMediaItems(prev => [mediaItem, ...prev]);
-      setNewMedia({ title: '', description: '', tags: '', file: null });
-      setShowUploadForm(false);
-      
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      const response = await authAPI.getProfile();
+      if (response) {
+        setIsDjangoConnected(true);
+        console.log('✅ Connexion Django établie');
       }
     } catch (error) {
-      console.error('Erreur upload:', error);
-      alert('Erreur lors de l\'upload du fichier');
-    } finally {
-      setIsUploading(false);
+      console.warn('⚠️ Django non disponible, utilisation du mode démo');
+      setIsDjangoConnected(false);
     }
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  // Charger les données initiales
+  useEffect(() => {
+    if (user) {
+      loadInitialData();
+      
+      // Actualiser les données toutes les 30 secondes
+      const interval = setInterval(refreshData, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user, isDjangoConnected]);
+
+  const loadInitialData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Charger les utilisateurs de test
+      const allUsers = [...testPirogues];
+      if (user && !allUsers.find(u => u.id === user.id)) {
+        allUsers.push(user);
+      }
+      setUsers(allUsers);
+      
+      if (isDjangoConnected) {
+        await Promise.all([
+          loadMessages(),
+          loadAlerts(),
+          loadZones(),
+          loadTrips(),
+          loadFleetStats()
+        ]);
+      } else {
+        // Utiliser les données de démonstration
+        setZones(mockData.zones);
+      }
+      
+      if (!isDjangoConnected) {
+        // Charger les messages et alertes depuis les logs en mode démo
+        loadMessagesFromLogs();
+        loadAlertsFromLogs();
+      }
+      
+      // Charger les positions des pirogues de test
+      loadTestPirogueLocations();
+      
+      // Charger la météo réelle
+      await loadRealWeather();
+    } catch (error) {
+      console.error('Erreur chargement données:', error);
+      setZones(mockData.zones);
+      setUsers(testPirogues);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const loadMessages = async () => {
+    try {
+      const data = await communicationAPI.getMessages();
+      const transformedMessages = data.map((msg: any) => ({
+        id: msg.id,
+        senderId: msg.sender,
+        receiverId: msg.receiver,
+        content: msg.content,
+        type: msg.message_type,
+        timestamp: msg.created_at,
+        isRead: msg.is_read,
+        metadata: msg.metadata
+      }));
+      setMessages(transformedMessages);
+    } catch (error) {
+      console.error('Erreur chargement messages:', error);
+      loadMessagesFromLogs();
+    }
+  };
+
+  const loadAlerts = async () => {
+    try {
+      const data = await alertsAPI.getAlerts();
+      const transformedAlerts = data.map((alert: any) => ({
+        id: alert.id,
+        userId: alert.user,
+        type: alert.alert_type,
+        message: alert.message,
+        severity: alert.severity,
+        status: alert.status,
+        createdAt: alert.created_at,
+        location: alert.location ? {
+          id: alert.location.id,
+          userId: alert.user,
+          latitude: alert.location.latitude,
+          longitude: alert.location.longitude,
+          timestamp: alert.location.timestamp,
+          speed: alert.location.speed,
+          heading: alert.location.heading
+        } : undefined,
+        metadata: alert.metadata
+      }));
+      setAlerts(transformedAlerts);
+    } catch (error) {
+      console.error('Erreur chargement alertes:', error);
+      loadAlertsFromLogs();
+    }
+  };
+
+  const loadMessagesFromLogs = () => {
+    const loggedMessages = logger.getRecentMessages('general', 100);
+    const transformedMessages = loggedMessages.map(log => ({
+      id: log.id,
+      senderId: log.content.senderId,
+      receiverId: log.content.receiverId,
+      channelId: log.content.channelId,
+      content: log.content.content,
+      type: log.content.type,
+      timestamp: log.timestamp,
+      isRead: log.content.isRead || false,
+      metadata: log.metadata
+    }));
+    setMessages(transformedMessages);
+  };
+
+  const loadAlertsFromLogs = () => {
+    const loggedAlerts = logger.getRecentAlerts(50);
+    const transformedAlerts = loggedAlerts.map(log => ({
+      id: log.id,
+      userId: log.content.userId,
+      type: log.content.type,
+      message: log.content.message,
+      severity: log.content.severity,
+      status: log.content.status || 'active',
+      createdAt: log.timestamp,
+      location: log.content.location,
+      metadata: log.metadata
+    }));
+    setAlerts(transformedAlerts);
+  };
+
+  const loadTestPirogueLocations = () => {
+    const positions = pirogueSimulator.getCurrentPositions();
+    setLocations(positions);
+  };
+
+  const loadRealWeather = async () => {
+    try {
+      const weatherData = await weatherService.getCurrentWeather();
+      setWeather(weatherData);
+      console.log('🌤️ Météo chargée:', weatherData);
+    } catch (error) {
+      console.error('Erreur chargement météo:', error);
+    }
+  };
+
+  const loadZones = async () => {
+    try {
+      const data = await zonesAPI.getZones();
+      const transformedZones = data.map((zone: any) => ({
+        id: zone.id,
+        name: zone.name,
+        coordinates: zone.coordinates?.coordinates?.[0]?.map((coord: number[]) => [coord[1], coord[0]]) || [],
+        type: zone.zone_type,
+        isActive: zone.is_active
+      }));
+      setZones(transformedZones);
+    } catch (error) {
+      console.error('Erreur chargement zones:', error);
+      setZones(mockData.zones);
+    }
+  };
+
+  const loadTrips = async () => {
+    try {
+      if (user) {
+        const data = await trackingAPI.getTrips(user.id);
+        const transformedTrips = data.map((trip: any) => ({
+          id: trip.id,
+          userId: trip.user,
+          startTime: trip.start_time,
+          endTime: trip.end_time,
+          startLocation: {
+            id: trip.start_location?.id || '',
+            userId: trip.user,
+            latitude: trip.start_location?.latitude || 14.9325,
+            longitude: trip.start_location?.longitude || -17.1925,
+            timestamp: trip.start_time,
+            speed: 0,
+            heading: 0
+          },
+          distance: trip.distance_km || 0,
+          maxSpeed: trip.max_speed || 0,
+          avgSpeed: trip.avg_speed || 0
+        }));
+        setTrips(transformedTrips);
+      }
+    } catch (error) {
+      console.error('Erreur chargement sorties:', error);
+    }
+  };
+
+  const loadFleetStats = async () => {
+    try {
+      if (user?.role === 'admin' || user?.role === 'organization') {
+        const locations = await trackingAPI.getLocations();
+        const alerts = await alertsAPI.getAlerts();
+        
+        const activeBoats = new Set(locations.map((loc: any) => loc.user)).size;
+        const activeAlerts = alerts.filter((alert: any) => alert.status === 'active').length;
+        
+        setFleetStats({
+          activeBoats,
+          activeAlerts,
+          totalLocations: locations.length
+        });
+      }
+    } catch (error) {
+      console.error('Erreur chargement statistiques:', error);
+    }
+  };
+
+  // Actions
+  const updateLocation = async (location: Omit<Location, 'id' | 'timestamp'>) => {
+    try {
+      if (isDjangoConnected) {
+        await trackingAPI.updateLocation({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          speed: location.speed,
+          heading: location.heading,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Toujours mettre à jour les positions locales
+      const newLocation: Location = {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        ...location
+      };
+      setLocations(prev => [newLocation, ...prev.slice(0, 99)]);
+    } catch (error) {
+      console.error('Erreur mise à jour position:', error);
+    }
+  };
+
+  const sendMessage = async (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => {
+    try {
+      let messageId: string;
+      
+      if (isSupabaseConnected) {
+        // Envoyer à Supabase
+        const dbMessage = await supabaseHelpers.insertMessage(message);
+        messageId = dbMessage.id;
+        console.log('💬 Message envoyé à Supabase');
+      } else {
+        // Fallback vers logs
+        messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+        console.log('💬 Message loggé en mode démo');
+      }
+      if (isDjangoConnected) {
+        // Envoyer à Django
+        const response = await communicationAPI.sendMessage({
+          sender: message.senderId,
+          receiver: message.receiverId,
+          content: message.content,
+          message_type: message.type,
+          metadata: message.metadata
+        });
+        messageId = response.id;
+        console.log('💬 Message envoyé à Django');
+      } else {
+        // Fallback vers logs
+        messageId = logger.logMessage(message.senderId, message);
+        console.log('💬 Message loggé en mode démo');
+      }
+      
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      
+      setMessages(prev => [...prev, newMessage]);
+      
+      if (!isSupabaseConnected) {
+        // Simuler la réception en temps réel pour les autres utilisateurs
+        setTimeout(() => {
+          loadMessagesFromLogs();
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Erreur envoi message:', error);
+      // Fallback vers logs en cas d'erreur Supabase
+      const messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      setMessages(prev => [...prev, newMessage]);
+      // Fallback vers logs en cas d'erreur Django
+      const messageId = logger.logMessage(message.senderId, message);
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      setMessages(prev => [...prev, newMessage]);
+    }
+  };
+
+  const createAlert = async (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => {
+    try {
+      let alertId: string;
+      
+      if (isDjangoConnected) {
+        // Envoyer à Django
+        const response = await alertsAPI.createAlert({
+          user: alert.userId,
+          alert_type: alert.type,
+          title: alert.message,
+          message: alert.message,
+          severity: alert.severity,
+          location: alert.location ? {
+            latitude: alert.location.latitude,
+            longitude: alert.location.longitude,
+            speed: alert.location.speed,
+            heading: alert.location.heading,
+            timestamp: alert.location.timestamp
+          } : null,
+          metadata: alert.metadata
+        });
+        alertId = response.id;
+        console.log('🚨 Alerte envoyée à Django');
+      } else {
+        // Fallback vers logs
+        alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+        console.log('🚨 Alerte loggée en mode démo');
+      }
+      
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      
+      setAlerts(prev => [newAlert, ...prev]);
+    } catch (error) {
+      console.error('Erreur création alerte:', error);
+      let alertId: string;
+      
+      if (isSupabaseConnected) {
+        // Envoyer à Supabase
+        const dbAlert = await supabaseHelpers.insertAlert(alert);
+        alertId = dbAlert.id;
+        console.log('🚨 Alerte envoyée à Supabase');
+      } else {
+        // Fallback vers logs
+        alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+        console.log('🚨 Alerte loggée en mode démo');
+      }
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      setAlerts(prev => [newAlert, ...prev]);
+    }
+
+  const acknowledgeAlert = async (alertId: string) => {
+      // Fallback vers logs en cas d'erreur Supabase
+      const alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      setAlerts(prev => [newAlert, ...prev]);
+    try {
+      if (isDjangoConnected) {
+        await alertsAPI.acknowledgeAlert(alertId);
+        console.log('✅ Alerte acquittée via Django');
+      }
+      
+      setAlerts(prev => prev.map(alert => 
+        alert.id === alertId ? { ...alert, status: 'acknowledged' as const } : alert
+      ));
+    } catch (error) {
+      console.error('Erreur acquittement alerte:', error);
+    }
+  };
+
+  const addUser = async (userData: any) => {
+    try {
+      if (isDjangoConnected) {
+        const response = await authAPI.register(userData);
+        const newUser: User = response.user;
+        setUsers(prev => [newUser, ...prev]);
+      } else {
+        // Mode démo
+        const newUser: User = {
+          id: Date.now().toString(),
+          email: userData.email,
+          username: userData.email.split('@')[0],
+          role: userData.role,
+          profile: {
+            fullName: userData.fullName,
+            phone: userData.phone,
+            boatName: userData.boatName,
+            licenseNumber: userData.licenseNumber
+          }
+        };
+        setUsers(prev => [newUser, ...prev]);
+      }
+    } catch (error) {
+      console.error('Erreur ajout utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const updateUser = async (userId: string, userData: any) => {
+    try {
+      if (isDjangoConnected) {
+        await authAPI.updateProfile(userData);
+      }
+      
+      setUsers(prev => prev.map(user => 
+        user.id === userId ? { ...user, profile: { ...user.profile, ...userData } } : user
+      ));
+    } catch (error) {
+      console.error('Erreur mise à jour utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    try {
+      // Note: La suppression d'utilisateur nécessite une API spécifique
+      console.warn('Suppression utilisateur non implémentée côté Django');
+      
+      setUsers(prev => prev.filter(user => user.id !== userId));
+    } catch (error) {
+      console.error('Erreur suppression utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const uploadFile = async (file: File, bucket: string, path: string): Promise<string> => {
+    try {
+      if (isDjangoConnected) {
+        const response = await communicationAPI.uploadFile(file, bucket);
+        return response.file_url;
+      } else {
+        // Mode démo - retourner une URL simulée
+        return URL.createObjectURL(file);
+      }
+    } catch (error) {
+      console.error('Erreur upload fichier:', error);
+      throw error;
+    }
+  };
+
+  const addZone = async (zoneData: any) => {
+    try {
+      if (isDjangoConnected) {
+        await zonesAPI.createZone({
+          name: zoneData.name,
+          description: zoneData.description,
+          zone_type: zoneData.type,
+          coordinates: {
+            type: 'Polygon',
+            coordinates: [zoneData.coordinates]
+          },
+          is_active: true,
+          created_by: user?.id
+        });
+        await loadZones();
+      } else {
+        // Mode démo
+        const newZone: Zone = {
+          id: Date.now().toString(),
+          name: zoneData.name,
+          coordinates: zoneData.coordinates,
+          type: zoneData.type,
+          isActive: true
+        };
+        setZones(prev => [newZone, ...prev]);
+      }
+    } catch (error) {
+      console.error('Erreur ajout zone:', error);
+      throw error;
+    }
+  };
+
+  const updateZone = async (zoneId: string, zoneData: any) => {
+    try {
+      if (isDjangoConnected) {
+        await zonesAPI.updateZone(zoneId, zoneData);
+        await loadZones();
+      } else {
+        setZones(prev => prev.map(zone => 
+          zone.id === zoneId ? { ...zone, ...zoneData } : zone
+        ));
+      }
+    } catch (error) {
+      console.error('Erreur mise à jour zone:', error);
+      throw error;
+    }
+  };
+
+  const deleteZone = async (zoneId: string) => {
+    try {
+      if (isDjangoConnected) {
+        await zonesAPI.deleteZone(zoneId);
+        await loadZones();
+      } else {
+        setZones(prev => prev.filter(zone => zone.id !== zoneId));
+      }
+    } catch (error) {
+      console.error('Erreur suppression zone:', error);
+      throw error;
+    }
+  };
+
+  const refreshData = async () => {
+    try {
+      // Actualiser les positions des pirogues de test
+      loadTestPirogueLocations();
+      
+      // Actualiser la météo
+      await loadRealWeather();
+      
+      if (isDjangoConnected) {
+        await Promise.all([
+          loadMessages(),
+          loadAlerts(),
+          loadZones(),
+          loadFleetStats()
+        ]);
+      }
+    } catch (error) {
+      console.error('Erreur actualisation données:', error);
+    }
   };
 
   return (
-    <div className="p-6 bg-gray-50 min-h-full">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Galerie Photos & Vidéos</h1>
-        <p className="text-gray-600">Partagez vos moments de pêche et techniques avec la communauté</p>
-      </div>
-
-      {/* Statistiques */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Médias</p>
-              <p className="text-2xl font-bold text-gray-900">{mediaItems.length}</p>
-            </div>
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Image className="w-6 h-6 text-blue-600" />
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Photos</p>
-              <p className="text-2xl font-bold text-green-600">
-                {mediaItems.filter(m => m.type === 'photo').length}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <Camera className="w-6 h-6 text-green-600" />
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Vidéos</p>
-              <p className="text-2xl font-bold text-purple-600">
-                {mediaItems.filter(m => m.type === 'video').length}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-              <Video className="w-6 h-6 text-purple-600" />
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Stockage</p>
-              <p className="text-2xl font-bold text-cyan-600">
-                {formatFileSize(mediaItems.reduce((sum, m) => sum + m.size, 0))}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-cyan-100 rounded-lg flex items-center justify-center">
-              <Upload className="w-6 h-6 text-cyan-600" />
-            </div>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Filtres et actions */}
-      <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex flex-col sm:flex-row gap-4 flex-1">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Rechercher dans la galerie..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-              />
-            </div>
-            
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value as any)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-            >
-              <option value="all">Tous les médias</option>
-              <option value="photo">Photos uniquement</option>
-              <option value="video">Vidéos uniquement</option>
-            </select>
-          </div>
-          
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowUploadForm(true)}
-            className="bg-gradient-to-r from-cyan-600 to-blue-600 text-white px-6 py-2 rounded-lg hover:from-cyan-700 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Ajouter un média</span>
-          </motion.button>
-        </div>
-      </div>
-
-      {/* Grille de médias */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {filteredMedia.map((item, index) => (
-          <motion.div
-            key={item.id}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: index * 0.05 }}
-            className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
-            onClick={() => setSelectedMedia(item)}
-          >
-            <div className="relative aspect-video bg-gray-100">
-              {item.type === 'photo' ? (
-                <img
-                  src={item.url}
-                  alt={item.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-              ) : (
-                <div className="relative w-full h-full">
-                  <img
-                    src={item.thumbnail || item.url}
-                    alt={item.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                    <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center">
-                      <Play className="w-6 h-6 text-gray-800 ml-1" />
-                    </div>
-                  </div>
-                  {item.duration && (
-                    <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                      {formatDuration(item.duration)}
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              <div className="absolute top-2 left-2">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  item.type === 'photo' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
-                }`}>
-                  {item.type === 'photo' ? 'Photo' : 'Vidéo'}
-                </span>
-              </div>
-            </div>
-
-            <div className="p-4">
-              <h3 className="font-semibold text-gray-900 mb-1 truncate">{item.title}</h3>
-              <p className="text-sm text-gray-600 mb-2 line-clamp-2">{item.description}</p>
-              
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
-                <span>Par {item.uploadedBy}</span>
-                <span>{formatFileSize(item.size)}</span>
-              </div>
-              
-              <div className="flex flex-wrap gap-1 mb-2">
-                {item.tags.slice(0, 3).map((tag, idx) => (
-                  <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                    #{tag}
-                  </span>
-                ))}
-                {item.tags.length > 3 && (
-                  <span className="text-xs text-gray-500">+{item.tags.length - 3}</span>
-                )}
-              </div>
-              
-              <p className="text-xs text-gray-500">
-                {new Date(item.uploadedAt).toLocaleDateString('fr-FR')}
-              </p>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Modal de visualisation */}
-      <AnimatePresence>
-        {selectedMedia && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4"
-            onClick={() => setSelectedMedia(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">{selectedMedia.title}</h3>
-                <button
-                  onClick={() => setSelectedMedia(null)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl"
-                >
-                  ×
-                </button>
-              </div>
-              
-              <div className="p-6">
-                <div className="mb-4">
-                  {selectedMedia.type === 'photo' ? (
-                    <img
-                      src={selectedMedia.url}
-                      alt={selectedMedia.title}
-                      className="w-full max-h-96 object-contain rounded-lg"
-                    />
-                  ) : (
-                    <video
-                      src={selectedMedia.url}
-                      controls
-                      className="w-full max-h-96 rounded-lg"
-                    />
-                  )}
-                </div>
-                
-                <div className="space-y-3">
-                  <p className="text-gray-700">{selectedMedia.description}</p>
-                  
-                  <div className="flex flex-wrap gap-2">
-                    {selectedMedia.tags.map((tag, idx) => (
-                      <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-                    <div>Uploadé par: <span className="font-medium">{selectedMedia.uploadedBy}</span></div>
-                    <div>Taille: <span className="font-medium">{formatFileSize(selectedMedia.size)}</span></div>
-                    <div>Date: <span className="font-medium">{new Date(selectedMedia.uploadedAt).toLocaleDateString('fr-FR')}</span></div>
-                    {selectedMedia.duration && (
-                      <div>Durée: <span className="font-medium">{formatDuration(selectedMedia.duration)}</span></div>
-                    )}
-                  </div>
-                  
-                  {selectedMedia.location && (
-                    <div className="text-sm text-gray-600">
-                      <MapPin className="w-4 h-4 inline mr-1" />
-                      Position: {selectedMedia.location.latitude.toFixed(4)}, {selectedMedia.location.longitude.toFixed(4)}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Modal d'upload */}
-      <AnimatePresence>
-        {showUploadForm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
-            >
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Ajouter un média</h3>
-                
-                <form onSubmit={handleUpload} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Fichier *
-                    </label>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*,video/*"
-                      onChange={handleFileSelect}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                      required
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Images et vidéos acceptées (max 50MB)
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Titre *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={newMedia.title}
-                      onChange={(e) => setNewMedia({...newMedia, title: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                      placeholder="Titre du média"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description
-                    </label>
-                    <textarea
-                      value={newMedia.description}
-                      onChange={(e) => setNewMedia({...newMedia, description: e.target.value})}
-                      rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                      placeholder="Description du contenu..."
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Tags
-                    </label>
-                    <input
-                      type="text"
-                      value={newMedia.tags}
-                      onChange={(e) => setNewMedia({...newMedia, tags: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                      placeholder="pêche, technique, équipe (séparés par des virgules)"
-                    />
-                  </div>
-                  
-                  <div className="flex space-x-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setShowUploadForm(false)}
-                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-                    >
-                      Annuler
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isUploading}
-                      className="flex-1 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50"
-                    >
-                      {isUploading ? 'Upload...' : 'Ajouter'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <DataContext.Provider value={{
+      locations,
+      alerts,
+      messages,
+      weather,
+      zones,
+      trips,
+      users,
+      fleetStats,
+      updateLocation,
+      sendMessage,
+      createAlert,
+      acknowledgeAlert,
+      addUser,
+      updateUser,
+      deleteUser,
+      uploadFile,
+      addZone,
+      updateZone,
+      deleteZone,
+      refreshData,
+      isLoading
+    }}>
+      {children}
+    </DataContext.Provider>
   );
 };
-
-export default MediaGallery;

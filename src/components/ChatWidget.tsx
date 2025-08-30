@@ -1,435 +1,630 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { MessageCircle, Send, X, Image, MapPin, Paperclip, Users } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useData } from '../contexts/DataContext';
-import { useAuth } from '../contexts/AuthContext';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
+import { supabase, supabaseHelpers } from '../lib/supabaseHelpers';
+import { logger } from '../lib/logger';
+import { weatherService } from '../lib/weatherApi';
+import { testPirogues, pirogueSimulator } from '../lib/testData';
+import { Location, Alert, Message, WeatherCondition, Zone, Trip, User } from '../types';
 
-const ChatWidget: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [message, setMessage] = useState('');
-  const [activeChannel, setActiveChannel] = useState('general');
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const { messages, sendMessage, uploadFile, users } = useData();
-  const { user } = useAuth();
+interface DataContextType {
+  locations: Location[];
+  alerts: Alert[];
+  messages: Message[];
+  weather: WeatherCondition | null;
+  zones: Zone[];
+  trips: Trip[];
+  users: User[];
+  fleetStats: any;
+  updateLocation: (location: Omit<Location, 'id' | 'timestamp'>) => Promise<void>;
+  sendMessage: (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => Promise<void>;
+  createAlert: (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  acknowledgeAlert: (alertId: string) => Promise<void>;
+  addUser: (userData: any) => Promise<void>;
+  updateUser: (userId: string, userData: any) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
+  uploadFile: (file: File, bucket: string, path: string) => Promise<string>;
+  addZone: (zoneData: any) => Promise<void>;
+  updateZone: (zoneId: string, zoneData: any) => Promise<void>;
+  deleteZone: (zoneId: string) => Promise<void>;
+  refreshData: () => Promise<void>;
+  isLoading: boolean;
+}
 
-  // Filtrer les messages par canal
-  const filteredMessages = messages.filter(msg => {
-    if (activeChannel === 'general') {
-      return msg.channelId === 'general' || !msg.channelId;
-    }
-    return msg.channelId === activeChannel;
-  });
+const DataContext = createContext<DataContextType | undefined>(undefined);
 
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [filteredMessages]);
-
-  // Fonction pour obtenir le nom complet d'un utilisateur
-  const getUserFullName = (userId: string): string => {
-    if (userId === user?.id) {
-      return user.profile.fullName;
-    }
-    
-    const foundUser = users.find(u => u.id === userId);
-    if (foundUser) {
-      return foundUser.profile.fullName;
-    }
-    
-    return `Utilisateur ${userId.slice(-4)}`;
-  };
-
-  // Fonction pour obtenir l'avatar d'un utilisateur
-  const getUserAvatar = (userId: string): string | null => {
-    if (userId === user?.id) {
-      return user.profile.avatar || null;
-    }
-    
-    const foundUser = users.find(u => u.id === userId);
-    return foundUser?.profile.avatar || null;
-  };
-
-  // Fonction pour obtenir les initiales d'un utilisateur
-  const getUserInitials = (userId: string): string => {
-    const fullName = getUserFullName(userId);
-    const names = fullName.split(' ');
-    if (names.length >= 2) {
-      return `${names[0].charAt(0)}${names[names.length - 1].charAt(0)}`.toUpperCase();
-    }
-    return fullName.charAt(0).toUpperCase();
-  };
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((!message.trim() && !selectedImage) || !user) return;
-
-    try {
-      let messageContent = message.trim();
-      let messageType: 'text' | 'image' | 'location' = 'text';
-      let metadata = null;
-
-      // Upload image if selected
-      if (selectedImage) {
-        try {
-          const imagePath = `chat-images/${Date.now()}-${selectedImage.name}`;
-          const imageUrl = await uploadFile(selectedImage, 'chat-files', imagePath);
-          
-          if (message.trim()) {
-            messageContent = `${message.trim()}\n📷 Image partagée`;
-            metadata = { imageUrl, originalName: selectedImage.name };
-          } else {
-            messageContent = '📷 Image partagée';
-            messageType = 'image';
-            metadata = { imageUrl, originalName: selectedImage.name };
-          }
-        } catch (error) {
-          console.error('Erreur upload image:', error);
-          messageContent = message.trim() || '❌ Erreur lors du partage d\'image';
-        }
-      }
-
-      await sendMessage({
-        senderId: user.id,
-        channelId: activeChannel,
-        content: messageContent,
-        type: messageType,
-        metadata
-      });
-
-      setMessage('');
-      setSelectedImage(null);
-      setImagePreview(null);
-    } catch (error) {
-      console.error('Erreur envoi message:', error);
-    }
-  };
-
-  const handleSendLocation = () => {
-    if (!user) return;
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((position) => {
-        sendMessage({
-          senderId: user.id,
-          channelId: activeChannel,
-          content: `📍 Position partagée: ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`,
-          type: 'location',
-          metadata: {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy
-          }
-        });
-      }, (error) => {
-        console.error('Erreur géolocalisation:', error);
-        sendMessage({
-          senderId: user.id,
-          channelId: activeChannel,
-          content: '❌ Impossible de partager la position',
-          type: 'text'
-        });
-      });
-    }
-  };
-
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        alert('L\'image ne doit pas dépasser 5MB');
-        return;
-      }
-      
-      setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeSelectedImage = () => {
-    setSelectedImage(null);
-    setImagePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const channels = [
-    { id: 'general', name: 'Canal Général', icon: '💬', color: 'bg-blue-500' },
-    { id: 'emergency', name: 'Urgences', icon: '🚨', color: 'bg-red-500' },
-    { id: 'weather', name: 'Météo', icon: '🌊', color: 'bg-cyan-500' },
-    { id: 'coordination', name: 'Coordination', icon: '⚓', color: 'bg-green-500' }
-  ];
-
-  const currentChannel = channels.find(ch => ch.id === activeChannel);
-  const unreadCount = filteredMessages.filter(msg => !msg.isRead && msg.senderId !== user?.id).length;
-
-  if (!isOpen) {
-    return (
-      <motion.div 
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        className="fixed bottom-6 left-6 z-30"
-      >
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setIsOpen(true)}
-          className="bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-full w-16 h-16 flex items-center justify-center shadow-2xl hover:from-cyan-700 hover:to-blue-700 transition-all duration-300 relative"
-          title="Ouvrir le chat"
-        >
-          <MessageCircle className="w-7 h-7" />
-          {unreadCount > 0 && (
-            <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
-              <span className="text-xs font-bold text-white">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            </div>
-          )}
-        </motion.button>
-      </motion.div>
-    );
+export const useData = () => {
+  const context = useContext(DataContext);
+  if (context === undefined) {
+    throw new Error('useData must be used within a DataProvider');
   }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.8, y: 20 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.8, y: 20 }}
-      className="fixed bottom-6 left-6 z-30 w-96 h-[600px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden"
-    >
-      {/* Header */}
-      <div className={`${currentChannel?.color || 'bg-cyan-600'} text-white p-4 flex items-center justify-between`}>
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-            <span className="text-lg">{currentChannel?.icon || '💬'}</span>
-          </div>
-          <div>
-            <span className="font-semibold">Communication</span>
-            <p className="text-xs opacity-90">{currentChannel?.name}</p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center text-xs opacity-75">
-            <Users className="w-3 h-3 mr-1" />
-            <span>{users.length}</span>
-          </div>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => setIsOpen(false)}
-            className="hover:bg-white/20 rounded-full p-2 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </motion.button>
-        </div>
-      </div>
-
-      {/* Channel selector */}
-      <div className="border-b border-gray-200 p-3">
-        <select
-          value={activeChannel}
-          onChange={(e) => setActiveChannel(e.target.value)}
-          className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-white"
-        >
-          {channels.map(channel => (
-            <option key={channel.id} value={channel.id}>
-              {channel.icon} {channel.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
-        <AnimatePresence>
-          {filteredMessages.length === 0 ? (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center text-gray-500 text-sm py-12"
-            >
-              <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-3">
-                <MessageCircle className="w-8 h-8 text-gray-400" />
-              </div>
-              <p className="font-medium">Aucun message dans ce canal</p>
-              <p className="text-xs mt-1">Soyez le premier à envoyer un message</p>
-            </motion.div>
-          ) : (
-            filteredMessages.map((msg, index) => (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className={`flex items-start space-x-2 max-w-xs ${msg.senderId === user?.id ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  {/* Avatar de l'utilisateur */}
-                  {msg.senderId !== user?.id && (
-                    <div className="flex-shrink-0">
-                      <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-r from-cyan-600 to-blue-600 flex items-center justify-center">
-                        {getUserAvatar(msg.senderId) ? (
-                          <img 
-                            src={getUserAvatar(msg.senderId)!} 
-                            alt="Avatar" 
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <span className="text-white text-xs font-bold">
-                            {getUserInitials(msg.senderId)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  <div
-                    className={`px-4 py-3 rounded-2xl text-sm shadow-sm ${
-                      msg.senderId === user?.id
-                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white'
-                        : 'bg-white text-gray-900 border border-gray-200'
-                    }`}
-                  >
-                    {/* Nom de l'expéditeur pour les messages reçus */}
-                    {msg.senderId !== user?.id && (
-                      <p className="text-xs font-semibold mb-1 opacity-75">
-                        {getUserFullName(msg.senderId)}
-                      </p>
-                    )}
-                    
-                    {/* Contenu du message */}
-                    {msg.type === 'location' ? (
-                      <div className="flex items-center space-x-2">
-                        <MapPin className="w-4 h-4" />
-                        <span className="text-xs">{msg.content}</span>
-                      </div>
-                    ) : msg.type === 'image' && msg.metadata?.imageUrl ? (
-                      <div className="space-y-2">
-                        <img 
-                          src={msg.metadata.imageUrl} 
-                          alt="Image partagée"
-                          className="max-w-full h-auto rounded-lg cursor-pointer hover:opacity-90"
-                          onClick={() => window.open(msg.metadata.imageUrl, '_blank')}
-                        />
-                        {msg.content !== '📷 Image partagée' && (
-                          <p>{msg.content.replace('\n📷 Image partagée', '')}</p>
-                        )}
-                      </div>
-                    ) : (
-                      <div>
-                        <p>{msg.content}</p>
-                        {msg.metadata?.imageUrl && (
-                          <img 
-                            src={msg.metadata.imageUrl} 
-                            alt="Image partagée"
-                            className="mt-2 max-w-full h-auto rounded-lg cursor-pointer hover:opacity-90"
-                            onClick={() => window.open(msg.metadata.imageUrl, '_blank')}
-                          />
-                        )}
-                      </div>
-                    )}
-                    
-                    {/* Timestamp */}
-                    <p className={`text-xs mt-2 ${msg.senderId === user?.id ? 'text-cyan-100' : 'text-gray-500'}`}>
-                      {new Date(msg.timestamp).toLocaleTimeString('fr-FR', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            ))
-          )}
-        </AnimatePresence>
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Image preview */}
-      {imagePreview && (
-        <div className="border-t border-gray-200 p-3 bg-gray-50">
-          <div className="relative inline-block">
-            <img 
-              src={imagePreview} 
-              alt="Aperçu" 
-              className="h-20 w-20 object-cover rounded-lg"
-            />
-            <button
-              onClick={removeSelectedImage}
-              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Message input */}
-      <div className="border-t border-gray-200 p-4 bg-white">
-        <form onSubmit={handleSendMessage} className="space-y-3">
-          <div className="flex items-center space-x-2">
-            <input
-              type="text"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Tapez votre message..."
-              className="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent bg-gray-50"
-            />
-            
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              type="submit"
-              disabled={!message.trim() && !selectedImage}
-              className="bg-gradient-to-r from-cyan-600 to-blue-600 text-white p-3 rounded-xl hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
-            >
-              <Send className="w-5 h-5" />
-            </motion.button>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageSelect}
-              className="hidden"
-            />
-            
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-xl transition-colors"
-              title="Ajouter une image"
-            >
-              <Image className="w-5 h-5" />
-            </motion.button>
-            
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              type="button"
-              onClick={handleSendLocation}
-              className="p-2 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-xl transition-colors"
-              title="Partager ma position"
-            >
-              <MapPin className="w-5 h-5" />
-            </motion.button>
-          </div>
-        </form>
-      </div>
-    </motion.div>
-  );
+  return context;
 };
 
-export default ChatWidget;
+// Données de démonstration pour le mode hors ligne
+const mockData = {
+  zones: [
+    {
+      id: '1',
+      name: 'Zone de Sécurité Cayar',
+      coordinates: [
+        [14.9225, -17.2025],
+        [14.9225, -17.1825],
+        [14.9425, -17.1825],
+        [14.9425, -17.2025],
+        [14.9225, -17.2025]
+      ] as [number, number][],
+      type: 'safety' as const,
+      isActive: true
+    },
+    {
+      id: '2',
+      name: 'Zone de Pêche Traditionnelle',
+      coordinates: [
+        [14.9125, -17.2125],
+        [14.9125, -17.1925],
+        [14.9325, -17.1925],
+        [14.9325, -17.2125],
+        [14.9125, -17.2125]
+      ] as [number, number][],
+      type: 'fishing' as const,
+      isActive: true
+    },
+    {
+      id: '3',
+      name: 'Zone Restreinte',
+      coordinates: [
+        [14.9525, -17.1725],
+        [14.9525, -17.1525],
+        [14.9725, -17.1525],
+        [14.9725, -17.1725],
+        [14.9525, -17.1725]
+      ] as [number, number][],
+      type: 'restricted' as const,
+      isActive: true
+    }
+  ]
+};
+
+export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [weather, setWeather] = useState<WeatherCondition | null>(null);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [fleetStats, setFleetStats] = useState<any>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
+
+  // Vérifier la connexion Supabase
+  useEffect(() => {
+    checkSupabaseConnection();
+  }, []);
+
+  const checkSupabaseConnection = async () => {
+    try {
+      const { error } = await supabase.from('profiles').select('id').limit(1);
+      if (!error) {
+        setIsSupabaseConnected(true);
+        console.log('✅ Connexion Supabase établie');
+      } else {
+        console.warn('⚠️ Supabase non configuré, utilisation du mode démo');
+        setIsSupabaseConnected(false);
+      }
+    } catch (error) {
+      console.warn('⚠️ Erreur connexion Supabase, utilisation du mode démo');
+      setIsSupabaseConnected(false);
+    }
+  };
+
+  // Charger les données initiales
+  useEffect(() => {
+    if (user) {
+      loadInitialData();
+      
+      if (isSupabaseConnected) {
+        setupRealtimeSubscriptions();
+      }
+      
+      // Actualiser les données toutes les 30 secondes
+      const interval = setInterval(refreshData, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user, isSupabaseConnected]);
+
+  const loadInitialData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Charger les utilisateurs de test
+      const allUsers = [...testPirogues];
+      if (user && !allUsers.find(u => u.id === user.id)) {
+        allUsers.push(user);
+      }
+      setUsers(allUsers);
+      
+      if (isSupabaseConnected) {
+        await Promise.all([
+          loadZones(),
+          loadTrips(),
+          loadFleetStats()
+        ]);
+      } else {
+        // Utiliser les données de démonstration
+        setZones(mockData.zones);
+      }
+      
+      // Charger les messages et alertes depuis les logs
+      loadMessagesFromLogs();
+      loadAlertsFromLogs();
+      
+      // Charger les positions des pirogues de test
+      loadTestPirogueLocations();
+      
+      // Charger la météo réelle
+      await loadRealWeather();
+    } catch (error) {
+      console.error('Erreur chargement données:', error);
+      setZones(mockData.zones);
+      setUsers(testPirogues);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const setupRealtimeSubscriptions = () => {
+    // Subscription pour les zones seulement (messages et alertes sont dans les logs)
+    const zonesSubscription = supabase
+      .channel('zones')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'zones' },
+        () => loadZones()
+      )
+      .subscribe();
+
+    return () => {
+      zonesSubscription.unsubscribe();
+    };
+  };
+
+  const loadMessagesFromLogs = () => {
+    const loggedMessages = logger.getRecentMessages('general', 100);
+    const transformedMessages = loggedMessages.map(log => ({
+      id: log.id,
+      senderId: log.content.senderId,
+      receiverId: log.content.receiverId,
+      channelId: log.content.channelId,
+      content: log.content.content,
+      type: log.content.type,
+      timestamp: log.timestamp,
+      isRead: log.content.isRead || false,
+      metadata: log.metadata
+    }));
+    setMessages(transformedMessages);
+  };
+
+  const loadAlertsFromLogs = () => {
+    const loggedAlerts = logger.getRecentAlerts(50);
+    const transformedAlerts = loggedAlerts.map(log => ({
+      id: log.id,
+      userId: log.content.userId,
+      type: log.content.type,
+      message: log.content.message,
+      severity: log.content.severity,
+      status: log.content.status || 'active',
+      createdAt: log.timestamp,
+      location: log.content.location,
+      metadata: log.metadata
+    }));
+    setAlerts(transformedAlerts);
+  };
+
+  const loadTestPirogueLocations = () => {
+    const positions = pirogueSimulator.getCurrentPositions();
+    setLocations(positions);
+  };
+
+  const loadRealWeather = async () => {
+    try {
+      const weatherData = await weatherService.getCurrentWeather();
+      setWeather(weatherData);
+      console.log('🌤️ Météo chargée:', weatherData);
+    } catch (error) {
+      console.error('Erreur chargement météo:', error);
+    }
+  };
+
+  const loadZones = async () => {
+    try {
+      const data = await supabaseHelpers.getActiveZones();
+      const transformedZones = data.map(transformZone);
+      setZones(transformedZones);
+    } catch (error) {
+      console.error('Erreur chargement zones:', error);
+      setZones(mockData.zones);
+    }
+  };
+
+  const loadTrips = async () => {
+    try {
+      if (user) {
+        const data = await supabaseHelpers.getUserTrips(user.id);
+        const transformedTrips = data.map(transformTrip);
+        setTrips(transformedTrips);
+      }
+    } catch (error) {
+      console.error('Erreur chargement sorties:', error);
+    }
+  };
+
+  const loadFleetStats = async () => {
+    try {
+      if (user?.role === 'admin' || user?.role === 'organization') {
+        const stats = await supabaseHelpers.getFleetStatistics();
+        setFleetStats(stats);
+      }
+    } catch (error) {
+      console.error('Erreur chargement statistiques:', error);
+    }
+  };
+
+  // Fonctions de transformation
+  const transformZone = (dbZone: any): Zone => ({
+    id: dbZone.id,
+    name: dbZone.name,
+    coordinates: dbZone.coordinates?.coordinates?.[0]?.map((coord: number[]) => [coord[1], coord[0]]) || [],
+    type: dbZone.zone_type,
+    isActive: dbZone.is_active
+  });
+
+  const transformTrip = (dbTrip: any): Trip => ({
+    id: dbTrip.id,
+    userId: dbTrip.user_id,
+    startTime: dbTrip.start_time,
+    endTime: dbTrip.end_time,
+    startLocation: dbTrip.start_location ? {
+      id: dbTrip.start_location_id,
+      userId: dbTrip.user_id,
+      latitude: dbTrip.start_location.latitude,
+      longitude: dbTrip.start_location.longitude,
+      timestamp: dbTrip.start_time,
+      speed: 0,
+      heading: 0
+    } : {
+      id: '',
+      userId: dbTrip.user_id,
+      latitude: 14.9325,
+      longitude: -17.1925,
+      timestamp: dbTrip.start_time,
+      speed: 0,
+      heading: 0
+    },
+    distance: dbTrip.distance_km || 0,
+    maxSpeed: dbTrip.max_speed || 0,
+    avgSpeed: dbTrip.avg_speed || 0
+  });
+
+  // Actions
+  const updateLocation = async (location: Omit<Location, 'id' | 'timestamp'>) => {
+    try {
+      if (isSupabaseConnected) {
+        await supabaseHelpers.insertLocation(location);
+      }
+      
+      // Toujours mettre à jour les positions locales
+      const newLocation: Location = {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        ...location
+      };
+      setLocations(prev => [newLocation, ...prev.slice(0, 99)]);
+    } catch (error) {
+      console.error('Erreur mise à jour position:', error);
+    }
+  };
+
+  const sendMessage = async (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => {
+    try {
+      let messageId: string;
+      
+      if (isSupabaseConnected) {
+        // Envoyer à Supabase
+        const dbMessage = await supabaseHelpers.insertMessage(message);
+        messageId = dbMessage.id;
+        console.log('💬 Message envoyé à Supabase');
+      } else {
+        // Fallback vers logs
+        messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+        console.log('💬 Message loggé en mode démo');
+      }
+      
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      
+      setMessages(prev => [...prev, newMessage]);
+      
+      if (!isSupabaseConnected) {
+        // Simuler la réception en temps réel pour les autres utilisateurs
+        setTimeout(() => {
+          loadMessagesFromLogs();
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Erreur envoi message:', error);
+      // Fallback vers logs en cas d'erreur Supabase
+      const messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      setMessages(prev => [...prev, newMessage]);
+    }
+  };
+
+  const createAlert = async (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => {
+    try {
+      let alertId: string;
+      
+      if (isSupabaseConnected) {
+        // Envoyer à Supabase
+        const dbAlert = await supabaseHelpers.insertAlert(alert);
+        alertId = dbAlert.id;
+        console.log('🚨 Alerte envoyée à Supabase');
+      } else {
+        // Fallback vers logs
+        alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+        console.log('🚨 Alerte loggée en mode démo');
+      }
+      
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      
+      setAlerts(prev => [newAlert, ...prev]);
+    } catch (error) {
+      console.error('Erreur création alerte:', error);
+      // Fallback vers logs en cas d'erreur Supabase
+      const alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      setAlerts(prev => [newAlert, ...prev]);
+    }
+  };
+
+  const acknowledgeAlert = async (alertId: string) => {
+    try {
+      setAlerts(prev => prev.map(alert => 
+        alert.id === alertId ? { ...alert, status: 'acknowledged' as const } : alert
+      ));
+      console.log('✅ Alerte acquittée');
+    } catch (error) {
+      console.error('Erreur acquittement alerte:', error);
+    }
+  };
+
+  const addUser = async (userData: any) => {
+    try {
+      if (isSupabaseConnected) {
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: userData.email,
+          password: userData.password
+        });
+
+        if (authError) throw authError;
+
+        if (authData.user) {
+          await supabaseHelpers.createUserProfile({
+            id: authData.user.id,
+            ...userData
+          });
+        }
+      } else {
+        // Mode démo
+        const newUser: User = {
+          id: Date.now().toString(),
+          email: userData.email,
+          username: userData.email.split('@')[0],
+          role: userData.role,
+          profile: {
+            fullName: userData.fullName,
+            phone: userData.phone,
+            boatName: userData.boatName,
+            licenseNumber: userData.licenseNumber
+          }
+        };
+        setUsers(prev => [newUser, ...prev]);
+      }
+    } catch (error) {
+      console.error('Erreur ajout utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const updateUser = async (userId: string, userData: any) => {
+    try {
+      if (isSupabaseConnected) {
+        await supabaseHelpers.updateProfile(userId, userData);
+      }
+      
+      setUsers(prev => prev.map(user => 
+        user.id === userId ? { ...user, profile: { ...user.profile, ...userData } } : user
+      ));
+    } catch (error) {
+      console.error('Erreur mise à jour utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    try {
+      if (isSupabaseConnected) {
+        await supabaseHelpers.deleteProfile(userId);
+      }
+      
+      setUsers(prev => prev.filter(user => user.id !== userId));
+    } catch (error) {
+      console.error('Erreur suppression utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const uploadFile = async (file: File, bucket: string, path: string): Promise<string> => {
+    try {
+      if (isSupabaseConnected) {
+        await supabaseHelpers.uploadFile(file, bucket, path);
+        return supabaseHelpers.getPublicUrl(bucket, path);
+      } else {
+        // Mode démo - retourner une URL simulée
+        return URL.createObjectURL(file);
+      }
+    } catch (error) {
+      console.error('Erreur upload fichier:', error);
+      throw error;
+    }
+  };
+
+  const addZone = async (zoneData: any) => {
+    try {
+      if (isSupabaseConnected) {
+        const { data, error } = await supabase
+          .from('zones')
+          .insert({
+            name: zoneData.name,
+            description: zoneData.description,
+            zone_type: zoneData.type,
+            coordinates: {
+              type: 'Polygon',
+              coordinates: [zoneData.coordinates]
+            },
+            is_active: true,
+            created_by: user?.id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        await loadZones();
+      } else {
+        // Mode démo
+        const newZone: Zone = {
+          id: Date.now().toString(),
+          name: zoneData.name,
+          coordinates: zoneData.coordinates,
+          type: zoneData.type,
+          isActive: true
+        };
+        setZones(prev => [newZone, ...prev]);
+      }
+    } catch (error) {
+      console.error('Erreur ajout zone:', error);
+      throw error;
+    }
+  };
+
+  const updateZone = async (zoneId: string, zoneData: any) => {
+    try {
+      if (isSupabaseConnected) {
+        const { error } = await supabase
+          .from('zones')
+          .update({
+            ...zoneData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', zoneId);
+
+        if (error) throw error;
+        await loadZones();
+      } else {
+        setZones(prev => prev.map(zone => 
+          zone.id === zoneId ? { ...zone, ...zoneData } : zone
+        ));
+      }
+    } catch (error) {
+      console.error('Erreur mise à jour zone:', error);
+      throw error;
+    }
+  };
+
+  const deleteZone = async (zoneId: string) => {
+    try {
+      if (isSupabaseConnected) {
+        const { error } = await supabase
+          .from('zones')
+          .delete()
+          .eq('id', zoneId);
+
+        if (error) throw error;
+        await loadZones();
+      } else {
+        setZones(prev => prev.filter(zone => zone.id !== zoneId));
+      }
+    } catch (error) {
+      console.error('Erreur suppression zone:', error);
+      throw error;
+    }
+  };
+
+  const refreshData = async () => {
+    try {
+      // Actualiser les positions des pirogues de test
+      loadTestPirogueLocations();
+      
+      // Actualiser la météo
+      await loadRealWeather();
+      
+      if (isSupabaseConnected) {
+        await Promise.all([
+          loadZones(),
+          loadFleetStats()
+        ]);
+      }
+    } catch (error) {
+      console.error('Erreur actualisation données:', error);
+    }
+  };
+
+  return (
+    <DataContext.Provider value={{
+      locations,
+      alerts,
+      messages,
+      weather,
+      zones,
+      trips,
+      users,
+      fleetStats,
+      updateLocation,
+      sendMessage,
+      createAlert,
+      acknowledgeAlert,
+      addUser,
+      updateUser,
+      deleteUser,
+      uploadFile,
+      addZone,
+      updateZone,
+      deleteZone,
+      refreshData,
+      isLoading
+    }}>
+      {children}
+    </DataContext.Provider>
+  );
+};

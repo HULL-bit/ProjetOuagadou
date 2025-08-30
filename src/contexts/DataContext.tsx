@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { trackingAPI, alertsAPI, communicationAPI, zonesAPI, weatherAPI } from '../lib/api';
+import { authAPI, trackingAPI, alertsAPI, communicationAPI, zonesAPI, weatherAPI } from '../lib/api';
 import { logger } from '../lib/logger';
 import { weatherService } from '../lib/weatherApi';
 import { testPirogues, pirogueSimulator } from '../lib/testData';
@@ -96,26 +96,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [users, setUsers] = useState<User[]>([]);
   const [fleetStats, setFleetStats] = useState<any>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
+  const [isDjangoConnected, setIsDjangoConnected] = useState(false);
 
-  // Vérifier la connexion Supabase
+  // Vérifier la connexion Django
   useEffect(() => {
-    checkSupabaseConnection();
+    checkDjangoConnection();
   }, []);
 
-  const checkSupabaseConnection = async () => {
+  const checkDjangoConnection = async () => {
     try {
-      const { error } = await supabase.from('profiles').select('id').limit(1);
-      if (!error) {
-        setIsSupabaseConnected(true);
-        console.log('✅ Connexion Supabase établie');
-      } else {
-        console.warn('⚠️ Supabase non configuré, utilisation du mode démo');
-        setIsSupabaseConnected(false);
+      const response = await authAPI.getProfile();
+      if (response) {
+        setIsDjangoConnected(true);
+        console.log('✅ Connexion Django établie');
       }
     } catch (error) {
-      console.warn('⚠️ Erreur connexion Supabase, utilisation du mode démo');
-      setIsSupabaseConnected(false);
+      console.warn('⚠️ Django non disponible, utilisation du mode démo');
+      setIsDjangoConnected(false);
     }
   };
 
@@ -124,15 +121,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user) {
       loadInitialData();
       
-      if (isSupabaseConnected) {
-        setupRealtimeSubscriptions();
-      }
-      
       // Actualiser les données toutes les 30 secondes
       const interval = setInterval(refreshData, 30000);
       return () => clearInterval(interval);
     }
-  }, [user, isSupabaseConnected]);
+  }, [user, isDjangoConnected]);
 
   const loadInitialData = async () => {
     try {
@@ -145,8 +138,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setUsers(allUsers);
       
-      if (isSupabaseConnected) {
+      if (isDjangoConnected) {
         await Promise.all([
+          loadMessages(),
+          loadAlerts(),
           loadZones(),
           loadTrips(),
           loadFleetStats()
@@ -156,9 +151,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setZones(mockData.zones);
       }
       
-      // Charger les messages et alertes depuis les logs
-      loadMessagesFromLogs();
-      loadAlertsFromLogs();
+      if (!isDjangoConnected) {
+        // Charger les messages et alertes depuis les logs en mode démo
+        loadMessagesFromLogs();
+        loadAlertsFromLogs();
+      }
       
       // Charger les positions des pirogues de test
       loadTestPirogueLocations();
@@ -174,19 +171,53 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const setupRealtimeSubscriptions = () => {
-    // Subscription pour les zones seulement (messages et alertes sont dans les logs)
-    const zonesSubscription = supabase
-      .channel('zones')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'zones' },
-        () => loadZones()
-      )
-      .subscribe();
+  const loadMessages = async () => {
+    try {
+      const data = await communicationAPI.getMessages();
+      const transformedMessages = data.map((msg: any) => ({
+        id: msg.id,
+        senderId: msg.sender,
+        receiverId: msg.receiver,
+        content: msg.content,
+        type: msg.message_type,
+        timestamp: msg.created_at,
+        isRead: msg.is_read,
+        metadata: msg.metadata
+      }));
+      setMessages(transformedMessages);
+    } catch (error) {
+      console.error('Erreur chargement messages:', error);
+      loadMessagesFromLogs();
+    }
+  };
 
-    return () => {
-      zonesSubscription.unsubscribe();
-    };
+  const loadAlerts = async () => {
+    try {
+      const data = await alertsAPI.getAlerts();
+      const transformedAlerts = data.map((alert: any) => ({
+        id: alert.id,
+        userId: alert.user,
+        type: alert.alert_type,
+        message: alert.message,
+        severity: alert.severity,
+        status: alert.status,
+        createdAt: alert.created_at,
+        location: alert.location ? {
+          id: alert.location.id,
+          userId: alert.user,
+          latitude: alert.location.latitude,
+          longitude: alert.location.longitude,
+          timestamp: alert.location.timestamp,
+          speed: alert.location.speed,
+          heading: alert.location.heading
+        } : undefined,
+        metadata: alert.metadata
+      }));
+      setAlerts(transformedAlerts);
+    } catch (error) {
+      console.error('Erreur chargement alertes:', error);
+      loadAlertsFromLogs();
+    }
   };
 
   const loadMessagesFromLogs = () => {
@@ -238,8 +269,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadZones = async () => {
     try {
-      const data = await supabaseHelpers.getActiveZones();
-      const transformedZones = data.map(transformZone);
+      const data = await zonesAPI.getZones();
+      const transformedZones = data.map((zone: any) => ({
+        id: zone.id,
+        name: zone.name,
+        coordinates: zone.coordinates?.coordinates?.[0]?.map((coord: number[]) => [coord[1], coord[0]]) || [],
+        type: zone.zone_type,
+        isActive: zone.is_active
+      }));
       setZones(transformedZones);
     } catch (error) {
       console.error('Erreur chargement zones:', error);
@@ -250,8 +287,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadTrips = async () => {
     try {
       if (user) {
-        const data = await supabaseHelpers.getUserTrips(user.id);
-        const transformedTrips = data.map(transformTrip);
+        const data = await trackingAPI.getTrips(user.id);
+        const transformedTrips = data.map((trip: any) => ({
+          id: trip.id,
+          userId: trip.user,
+          startTime: trip.start_time,
+          endTime: trip.end_time,
+          startLocation: {
+            id: trip.start_location?.id || '',
+            userId: trip.user,
+            latitude: trip.start_location?.latitude || 14.9325,
+            longitude: trip.start_location?.longitude || -17.1925,
+            timestamp: trip.start_time,
+            speed: 0,
+            heading: 0
+          },
+          distance: trip.distance_km || 0,
+          maxSpeed: trip.max_speed || 0,
+          avgSpeed: trip.avg_speed || 0
+        }));
         setTrips(transformedTrips);
       }
     } catch (error) {
@@ -262,55 +316,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadFleetStats = async () => {
     try {
       if (user?.role === 'admin' || user?.role === 'organization') {
-        const stats = await supabaseHelpers.getFleetStatistics();
-        setFleetStats(stats);
+        const locations = await trackingAPI.getLocations();
+        const alerts = await alertsAPI.getAlerts();
+        
+        const activeBoats = new Set(locations.map((loc: any) => loc.user)).size;
+        const activeAlerts = alerts.filter((alert: any) => alert.status === 'active').length;
+        
+        setFleetStats({
+          activeBoats,
+          activeAlerts,
+          totalLocations: locations.length
+        });
       }
     } catch (error) {
       console.error('Erreur chargement statistiques:', error);
     }
   };
 
-  // Fonctions de transformation
-  const transformZone = (dbZone: any): Zone => ({
-    id: dbZone.id,
-    name: dbZone.name,
-    coordinates: dbZone.coordinates?.coordinates?.[0]?.map((coord: number[]) => [coord[1], coord[0]]) || [],
-    type: dbZone.zone_type,
-    isActive: dbZone.is_active
-  });
-
-  const transformTrip = (dbTrip: any): Trip => ({
-    id: dbTrip.id,
-    userId: dbTrip.user_id,
-    startTime: dbTrip.start_time,
-    endTime: dbTrip.end_time,
-    startLocation: dbTrip.start_location ? {
-      id: dbTrip.start_location_id,
-      userId: dbTrip.user_id,
-      latitude: dbTrip.start_location.latitude,
-      longitude: dbTrip.start_location.longitude,
-      timestamp: dbTrip.start_time,
-      speed: 0,
-      heading: 0
-    } : {
-      id: '',
-      userId: dbTrip.user_id,
-      latitude: 14.9325,
-      longitude: -17.1925,
-      timestamp: dbTrip.start_time,
-      speed: 0,
-      heading: 0
-    },
-    distance: dbTrip.distance_km || 0,
-    maxSpeed: dbTrip.max_speed || 0,
-    avgSpeed: dbTrip.avg_speed || 0
-  });
-
   // Actions
   const updateLocation = async (location: Omit<Location, 'id' | 'timestamp'>) => {
     try {
-      if (isSupabaseConnected) {
-        await supabaseHelpers.insertLocation(location);
+      if (isDjangoConnected) {
+        await trackingAPI.updateLocation({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          speed: location.speed,
+          heading: location.heading,
+          timestamp: new Date().toISOString()
+        });
       }
       
       // Toujours mettre à jour les positions locales
@@ -327,8 +360,24 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const sendMessage = async (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => {
     try {
-      // Logger le message au lieu de l'envoyer à Supabase
-      const messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+      let messageId: string;
+      
+      if (isDjangoConnected) {
+        // Envoyer à Django
+        const response = await communicationAPI.sendMessage({
+          sender: message.senderId,
+          receiver: message.receiverId,
+          content: message.content,
+          message_type: message.type,
+          metadata: message.metadata
+        });
+        messageId = response.id;
+        console.log('💬 Message envoyé à Django');
+      } else {
+        // Fallback vers logs
+        messageId = logger.logMessage(message.senderId, message);
+        console.log('💬 Message loggé en mode démo');
+      }
       
       const newMessage: Message = {
         id: messageId,
@@ -339,21 +388,54 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setMessages(prev => [...prev, newMessage]);
       
-      // Simuler la réception en temps réel pour les autres utilisateurs
-      setTimeout(() => {
-        loadMessagesFromLogs();
-      }, 100);
-      
-      console.log('💬 Message envoyé et loggé');
+      if (!isDjangoConnected) {
+        // Simuler la réception en temps réel pour les autres utilisateurs
+        setTimeout(() => {
+          loadMessagesFromLogs();
+        }, 100);
+      }
     } catch (error) {
       console.error('Erreur envoi message:', error);
+      // Fallback vers logs en cas d'erreur Django
+      const messageId = logger.logMessage(message.senderId, message);
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      setMessages(prev => [...prev, newMessage]);
     }
   };
 
   const createAlert = async (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => {
     try {
-      // Logger l'alerte au lieu de l'envoyer à Supabase
-      const alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+      let alertId: string;
+      
+      if (isDjangoConnected) {
+        // Envoyer à Django
+        const response = await alertsAPI.createAlert({
+          user: alert.userId,
+          alert_type: alert.type,
+          title: alert.message,
+          message: alert.message,
+          severity: alert.severity,
+          location: alert.location ? {
+            latitude: alert.location.latitude,
+            longitude: alert.location.longitude,
+            speed: alert.location.speed,
+            heading: alert.location.heading,
+            timestamp: alert.location.timestamp
+          } : null,
+          metadata: alert.metadata
+        });
+        alertId = response.id;
+        console.log('🚨 Alerte envoyée à Django');
+      } else {
+        // Fallback vers logs
+        alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+        console.log('🚨 Alerte loggée en mode démo');
+      }
       
       const newAlert: Alert = {
         id: alertId,
@@ -363,18 +445,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       
       setAlerts(prev => [newAlert, ...prev]);
-      console.log('🚨 Alerte créée et loggée');
     } catch (error) {
       console.error('Erreur création alerte:', error);
+      // Fallback vers logs en cas d'erreur Django
+      const alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      setAlerts(prev => [newAlert, ...prev]);
     }
   };
 
   const acknowledgeAlert = async (alertId: string) => {
     try {
+      if (isDjangoConnected) {
+        await alertsAPI.acknowledgeAlert(alertId);
+        console.log('✅ Alerte acquittée via Django');
+      }
+      
       setAlerts(prev => prev.map(alert => 
         alert.id === alertId ? { ...alert, status: 'acknowledged' as const } : alert
       ));
-      console.log('✅ Alerte acquittée');
     } catch (error) {
       console.error('Erreur acquittement alerte:', error);
     }
@@ -382,20 +476,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addUser = async (userData: any) => {
     try {
-      if (isSupabaseConnected) {
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: userData.email,
-          password: userData.password
-        });
-
-        if (authError) throw authError;
-
-        if (authData.user) {
-          await supabaseHelpers.createUserProfile({
-            id: authData.user.id,
-            ...userData
-          });
-        }
+      if (isDjangoConnected) {
+        const response = await authAPI.register(userData);
+        const newUser: User = response.user;
+        setUsers(prev => [newUser, ...prev]);
       } else {
         // Mode démo
         const newUser: User = {
@@ -420,8 +504,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUser = async (userId: string, userData: any) => {
     try {
-      if (isSupabaseConnected) {
-        await supabaseHelpers.updateProfile(userId, userData);
+      if (isDjangoConnected) {
+        await authAPI.updateProfile(userData);
       }
       
       setUsers(prev => prev.map(user => 
@@ -435,9 +519,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteUser = async (userId: string) => {
     try {
-      if (isSupabaseConnected) {
-        await supabaseHelpers.deleteProfile(userId);
-      }
+      // Note: La suppression d'utilisateur nécessite une API spécifique
+      console.warn('Suppression utilisateur non implémentée côté Django');
       
       setUsers(prev => prev.filter(user => user.id !== userId));
     } catch (error) {
@@ -448,9 +531,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const uploadFile = async (file: File, bucket: string, path: string): Promise<string> => {
     try {
-      if (isSupabaseConnected) {
-        await supabaseHelpers.uploadFile(file, bucket, path);
-        return supabaseHelpers.getPublicUrl(bucket, path);
+      if (isDjangoConnected) {
+        const response = await communicationAPI.uploadFile(file, bucket);
+        return response.file_url;
       } else {
         // Mode démo - retourner une URL simulée
         return URL.createObjectURL(file);
@@ -463,26 +546,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addZone = async (zoneData: any) => {
     try {
-      if (isSupabaseConnected) {
-        const { data, error } = await supabase
-          .from('zones')
-          .insert({
-            name: zoneData.name,
-            description: zoneData.description,
-            zone_type: zoneData.type,
-            coordinates: {
-              type: 'Polygon',
-              coordinates: [zoneData.coordinates]
-            },
-            is_active: true,
-            created_by: user?.id,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
+      if (isDjangoConnected) {
+        await zonesAPI.createZone({
+          name: zoneData.name,
+          description: zoneData.description,
+          zone_type: zoneData.type,
+          coordinates: {
+            type: 'Polygon',
+            coordinates: [zoneData.coordinates]
+          },
+          is_active: true,
+          created_by: user?.id
+        });
         await loadZones();
       } else {
         // Mode démo
@@ -503,16 +578,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateZone = async (zoneId: string, zoneData: any) => {
     try {
-      if (isSupabaseConnected) {
-        const { error } = await supabase
-          .from('zones')
-          .update({
-            ...zoneData,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', zoneId);
-
-        if (error) throw error;
+      if (isDjangoConnected) {
+        await zonesAPI.updateZone(zoneId, zoneData);
         await loadZones();
       } else {
         setZones(prev => prev.map(zone => 
@@ -527,13 +594,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteZone = async (zoneId: string) => {
     try {
-      if (isSupabaseConnected) {
-        const { error } = await supabase
-          .from('zones')
-          .delete()
-          .eq('id', zoneId);
-
-        if (error) throw error;
+      if (isDjangoConnected) {
+        await zonesAPI.deleteZone(zoneId);
         await loadZones();
       } else {
         setZones(prev => prev.filter(zone => zone.id !== zoneId));
@@ -552,8 +614,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Actualiser la météo
       await loadRealWeather();
       
-      if (isSupabaseConnected) {
+      if (isDjangoConnected) {
         await Promise.all([
+          loadMessages(),
+          loadAlerts(),
           loadZones(),
           loadFleetStats()
         ]);

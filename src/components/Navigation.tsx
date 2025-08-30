@@ -1,308 +1,630 @@
-import React, { useState } from 'react';
-import { 
-  Ship, 
-  Map, 
-  MessageSquare, 
-  AlertTriangle, 
-  Settings, 
-  LogOut, 
-  Users, 
-  BarChart3,
-  Shield,
-  User,
-  Anchor,
-  FileText,
-  ChevronLeft,
-  ChevronRight,
-  Waves,
-  Activity,
-  MapPin,
-  Camera,
-  History,
-  HelpCircle,
-  Radio,
-  Building
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '../contexts/AuthContext';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
+import { supabase, supabaseHelpers } from '../lib/supabaseHelpers';
+import { logger } from '../lib/logger';
+import { weatherService } from '../lib/weatherApi';
+import { testPirogues, pirogueSimulator } from '../lib/testData';
+import { Location, Alert, Message, WeatherCondition, Zone, Trip, User } from '../types';
 
-interface NavigationProps {
-  activeView: string;
-  onViewChange: (view: string) => void;
+interface DataContextType {
+  locations: Location[];
+  alerts: Alert[];
+  messages: Message[];
+  weather: WeatherCondition | null;
+  zones: Zone[];
+  trips: Trip[];
+  users: User[];
+  fleetStats: any;
+  updateLocation: (location: Omit<Location, 'id' | 'timestamp'>) => Promise<void>;
+  sendMessage: (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => Promise<void>;
+  createAlert: (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  acknowledgeAlert: (alertId: string) => Promise<void>;
+  addUser: (userData: any) => Promise<void>;
+  updateUser: (userId: string, userData: any) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
+  uploadFile: (file: File, bucket: string, path: string) => Promise<string>;
+  addZone: (zoneData: any) => Promise<void>;
+  updateZone: (zoneId: string, zoneData: any) => Promise<void>;
+  deleteZone: (zoneId: string) => Promise<void>;
+  refreshData: () => Promise<void>;
+  isLoading: boolean;
 }
 
-const Navigation: React.FC<NavigationProps> = ({ activeView, onViewChange }) => {
-  const { user, logout } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+const DataContext = createContext<DataContextType | undefined>(undefined);
 
-  const getNavigationItems = () => {
-    const baseItems = [
-      { id: 'dashboard', label: 'Tableau de Bord', icon: Ship },
-      { id: 'map', label: 'Carte Marine', icon: Map },
-      { id: 'communication', label: 'Communication', icon: MessageSquare },
-      { id: 'alerts', label: 'Alertes', icon: AlertTriangle },
-    ];
+export const useData = () => {
+  const context = useContext(DataContext);
+  if (context === undefined) {
+    throw new Error('useData must be used within a DataProvider');
+  }
+  return context;
+};
 
-    switch (user?.role) {
-      case 'fisherman':
-        return [
-          ...baseItems,
-          { id: 'profile', label: 'Mon Profil', icon: User },
-          { id: 'history', label: 'Historique', icon: BarChart3 },
-        ];
-      
-      case 'organization':
-        return [
-          ...baseItems,
-          { id: 'fleet-management', label: 'Gestion Flotte', icon: Anchor },
-          { id: 'user-management', label: 'Utilisateurs', icon: Users },
-          { id: 'statistics', label: 'Statistiques', icon: BarChart3 },
-          { id: 'zones', label: 'Zones Sécurité', icon: Shield },
-        ];
-      
-      case 'admin':
-        return [
-          ...baseItems,
-          { id: 'fleet-management', label: 'Gestion Flotte', icon: Anchor },
-          { id: 'user-management', label: 'Utilisateurs', icon: Users },
-          { id: 'system-monitoring', label: 'Monitoring', icon: BarChart3 },
-          { id: 'zones', label: 'Zones Sécurité', icon: Shield },
-          { id: 'logs', label: 'Logs Système', icon: FileText },
-          { id: 'system-settings', label: 'Configuration', icon: Settings },
-        ];
-      
-      default:
-        return baseItems;
+// Données de démonstration pour le mode hors ligne
+const mockData = {
+  zones: [
+    {
+      id: '1',
+      name: 'Zone de Sécurité Cayar',
+      coordinates: [
+        [14.9225, -17.2025],
+        [14.9225, -17.1825],
+        [14.9425, -17.1825],
+        [14.9425, -17.2025],
+        [14.9225, -17.2025]
+      ] as [number, number][],
+      type: 'safety' as const,
+      isActive: true
+    },
+    {
+      id: '2',
+      name: 'Zone de Pêche Traditionnelle',
+      coordinates: [
+        [14.9125, -17.2125],
+        [14.9125, -17.1925],
+        [14.9325, -17.1925],
+        [14.9325, -17.2125],
+        [14.9125, -17.2125]
+      ] as [number, number][],
+      type: 'fishing' as const,
+      isActive: true
+    },
+    {
+      id: '3',
+      name: 'Zone Restreinte',
+      coordinates: [
+        [14.9525, -17.1725],
+        [14.9525, -17.1525],
+        [14.9725, -17.1525],
+        [14.9725, -17.1725],
+        [14.9525, -17.1725]
+      ] as [number, number][],
+      type: 'restricted' as const,
+      isActive: true
+    }
+  ]
+};
+
+export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [weather, setWeather] = useState<WeatherCondition | null>(null);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [fleetStats, setFleetStats] = useState<any>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
+
+  // Vérifier la connexion Supabase
+  useEffect(() => {
+    checkSupabaseConnection();
+  }, []);
+
+  const checkSupabaseConnection = async () => {
+    try {
+      const { error } = await supabase.from('profiles').select('id').limit(1);
+      if (!error) {
+        setIsSupabaseConnected(true);
+        console.log('✅ Connexion Supabase établie');
+      } else {
+        console.warn('⚠️ Supabase non configuré, utilisation du mode démo');
+        setIsSupabaseConnected(false);
+      }
+    } catch (error) {
+      console.warn('⚠️ Erreur connexion Supabase, utilisation du mode démo');
+      setIsSupabaseConnected(false);
     }
   };
 
-  const navigationItems = getNavigationItems();
+  // Charger les données initiales
+  useEffect(() => {
+    if (user) {
+      loadInitialData();
+      
+      if (isSupabaseConnected) {
+        setupRealtimeSubscriptions();
+      }
+      
+      // Actualiser les données toutes les 30 secondes
+      const interval = setInterval(refreshData, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user, isSupabaseConnected]);
+
+  const loadInitialData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Charger les utilisateurs de test
+      const allUsers = [...testPirogues];
+      if (user && !allUsers.find(u => u.id === user.id)) {
+        allUsers.push(user);
+      }
+      setUsers(allUsers);
+      
+      if (isSupabaseConnected) {
+        await Promise.all([
+          loadZones(),
+          loadTrips(),
+          loadFleetStats()
+        ]);
+      } else {
+        // Utiliser les données de démonstration
+        setZones(mockData.zones);
+      }
+      
+      // Charger les messages et alertes depuis les logs
+      loadMessagesFromLogs();
+      loadAlertsFromLogs();
+      
+      // Charger les positions des pirogues de test
+      loadTestPirogueLocations();
+      
+      // Charger la météo réelle
+      await loadRealWeather();
+    } catch (error) {
+      console.error('Erreur chargement données:', error);
+      setZones(mockData.zones);
+      setUsers(testPirogues);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const setupRealtimeSubscriptions = () => {
+    // Subscription pour les zones seulement (messages et alertes sont dans les logs)
+    const zonesSubscription = supabase
+      .channel('zones')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'zones' },
+        () => loadZones()
+      )
+      .subscribe();
+
+    return () => {
+      zonesSubscription.unsubscribe();
+    };
+  };
+
+  const loadMessagesFromLogs = () => {
+    const loggedMessages = logger.getRecentMessages('general', 100);
+    const transformedMessages = loggedMessages.map(log => ({
+      id: log.id,
+      senderId: log.content.senderId,
+      receiverId: log.content.receiverId,
+      channelId: log.content.channelId,
+      content: log.content.content,
+      type: log.content.type,
+      timestamp: log.timestamp,
+      isRead: log.content.isRead || false,
+      metadata: log.metadata
+    }));
+    setMessages(transformedMessages);
+  };
+
+  const loadAlertsFromLogs = () => {
+    const loggedAlerts = logger.getRecentAlerts(50);
+    const transformedAlerts = loggedAlerts.map(log => ({
+      id: log.id,
+      userId: log.content.userId,
+      type: log.content.type,
+      message: log.content.message,
+      severity: log.content.severity,
+      status: log.content.status || 'active',
+      createdAt: log.timestamp,
+      location: log.content.location,
+      metadata: log.metadata
+    }));
+    setAlerts(transformedAlerts);
+  };
+
+  const loadTestPirogueLocations = () => {
+    const positions = pirogueSimulator.getCurrentPositions();
+    setLocations(positions);
+  };
+
+  const loadRealWeather = async () => {
+    try {
+      const weatherData = await weatherService.getCurrentWeather();
+      setWeather(weatherData);
+      console.log('🌤️ Météo chargée:', weatherData);
+    } catch (error) {
+      console.error('Erreur chargement météo:', error);
+    }
+  };
+
+  const loadZones = async () => {
+    try {
+      const data = await supabaseHelpers.getActiveZones();
+      const transformedZones = data.map(transformZone);
+      setZones(transformedZones);
+    } catch (error) {
+      console.error('Erreur chargement zones:', error);
+      setZones(mockData.zones);
+    }
+  };
+
+  const loadTrips = async () => {
+    try {
+      if (user) {
+        const data = await supabaseHelpers.getUserTrips(user.id);
+        const transformedTrips = data.map(transformTrip);
+        setTrips(transformedTrips);
+      }
+    } catch (error) {
+      console.error('Erreur chargement sorties:', error);
+    }
+  };
+
+  const loadFleetStats = async () => {
+    try {
+      if (user?.role === 'admin' || user?.role === 'organization') {
+        const stats = await supabaseHelpers.getFleetStatistics();
+        setFleetStats(stats);
+      }
+    } catch (error) {
+      console.error('Erreur chargement statistiques:', error);
+    }
+  };
+
+  // Fonctions de transformation
+  const transformZone = (dbZone: any): Zone => ({
+    id: dbZone.id,
+    name: dbZone.name,
+    coordinates: dbZone.coordinates?.coordinates?.[0]?.map((coord: number[]) => [coord[1], coord[0]]) || [],
+    type: dbZone.zone_type,
+    isActive: dbZone.is_active
+  });
+
+  const transformTrip = (dbTrip: any): Trip => ({
+    id: dbTrip.id,
+    userId: dbTrip.user_id,
+    startTime: dbTrip.start_time,
+    endTime: dbTrip.end_time,
+    startLocation: dbTrip.start_location ? {
+      id: dbTrip.start_location_id,
+      userId: dbTrip.user_id,
+      latitude: dbTrip.start_location.latitude,
+      longitude: dbTrip.start_location.longitude,
+      timestamp: dbTrip.start_time,
+      speed: 0,
+      heading: 0
+    } : {
+      id: '',
+      userId: dbTrip.user_id,
+      latitude: 14.9325,
+      longitude: -17.1925,
+      timestamp: dbTrip.start_time,
+      speed: 0,
+      heading: 0
+    },
+    distance: dbTrip.distance_km || 0,
+    maxSpeed: dbTrip.max_speed || 0,
+    avgSpeed: dbTrip.avg_speed || 0
+  });
+
+  // Actions
+  const updateLocation = async (location: Omit<Location, 'id' | 'timestamp'>) => {
+    try {
+      if (isSupabaseConnected) {
+        await supabaseHelpers.insertLocation(location);
+      }
+      
+      // Toujours mettre à jour les positions locales
+      const newLocation: Location = {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        ...location
+      };
+      setLocations(prev => [newLocation, ...prev.slice(0, 99)]);
+    } catch (error) {
+      console.error('Erreur mise à jour position:', error);
+    }
+  };
+
+  const sendMessage = async (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => {
+    try {
+      let messageId: string;
+      
+      if (isSupabaseConnected) {
+        // Envoyer à Supabase
+        const dbMessage = await supabaseHelpers.insertMessage(message);
+        messageId = dbMessage.id;
+        console.log('💬 Message envoyé à Supabase');
+      } else {
+        // Fallback vers logs
+        messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+        console.log('💬 Message loggé en mode démo');
+      }
+      
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      
+      setMessages(prev => [...prev, newMessage]);
+      
+      if (!isSupabaseConnected) {
+        // Simuler la réception en temps réel pour les autres utilisateurs
+        setTimeout(() => {
+          loadMessagesFromLogs();
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Erreur envoi message:', error);
+      // Fallback vers logs en cas d'erreur Supabase
+      const messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      setMessages(prev => [...prev, newMessage]);
+    }
+  };
+
+  const createAlert = async (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => {
+    try {
+      let alertId: string;
+      
+      if (isSupabaseConnected) {
+        // Envoyer à Supabase
+        const dbAlert = await supabaseHelpers.insertAlert(alert);
+        alertId = dbAlert.id;
+        console.log('🚨 Alerte envoyée à Supabase');
+      } else {
+        // Fallback vers logs
+        alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+        console.log('🚨 Alerte loggée en mode démo');
+      }
+      
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      
+      setAlerts(prev => [newAlert, ...prev]);
+    } catch (error) {
+      console.error('Erreur création alerte:', error);
+      // Fallback vers logs en cas d'erreur Supabase
+      const alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      setAlerts(prev => [newAlert, ...prev]);
+    }
+  };
+
+  const acknowledgeAlert = async (alertId: string) => {
+    try {
+      setAlerts(prev => prev.map(alert => 
+        alert.id === alertId ? { ...alert, status: 'acknowledged' as const } : alert
+      ));
+      console.log('✅ Alerte acquittée');
+    } catch (error) {
+      console.error('Erreur acquittement alerte:', error);
+    }
+  };
+
+  const addUser = async (userData: any) => {
+    try {
+      if (isSupabaseConnected) {
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: userData.email,
+          password: userData.password
+        });
+
+        if (authError) throw authError;
+
+        if (authData.user) {
+          await supabaseHelpers.createUserProfile({
+            id: authData.user.id,
+            ...userData
+          });
+        }
+      } else {
+        // Mode démo
+        const newUser: User = {
+          id: Date.now().toString(),
+          email: userData.email,
+          username: userData.email.split('@')[0],
+          role: userData.role,
+          profile: {
+            fullName: userData.fullName,
+            phone: userData.phone,
+            boatName: userData.boatName,
+            licenseNumber: userData.licenseNumber
+          }
+        };
+        setUsers(prev => [newUser, ...prev]);
+      }
+    } catch (error) {
+      console.error('Erreur ajout utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const updateUser = async (userId: string, userData: any) => {
+    try {
+      if (isSupabaseConnected) {
+        await supabaseHelpers.updateProfile(userId, userData);
+      }
+      
+      setUsers(prev => prev.map(user => 
+        user.id === userId ? { ...user, profile: { ...user.profile, ...userData } } : user
+      ));
+    } catch (error) {
+      console.error('Erreur mise à jour utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    try {
+      if (isSupabaseConnected) {
+        await supabaseHelpers.deleteProfile(userId);
+      }
+      
+      setUsers(prev => prev.filter(user => user.id !== userId));
+    } catch (error) {
+      console.error('Erreur suppression utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const uploadFile = async (file: File, bucket: string, path: string): Promise<string> => {
+    try {
+      if (isSupabaseConnected) {
+        await supabaseHelpers.uploadFile(file, bucket, path);
+        return supabaseHelpers.getPublicUrl(bucket, path);
+      } else {
+        // Mode démo - retourner une URL simulée
+        return URL.createObjectURL(file);
+      }
+    } catch (error) {
+      console.error('Erreur upload fichier:', error);
+      throw error;
+    }
+  };
+
+  const addZone = async (zoneData: any) => {
+    try {
+      if (isSupabaseConnected) {
+        const { data, error } = await supabase
+          .from('zones')
+          .insert({
+            name: zoneData.name,
+            description: zoneData.description,
+            zone_type: zoneData.type,
+            coordinates: {
+              type: 'Polygon',
+              coordinates: [zoneData.coordinates]
+            },
+            is_active: true,
+            created_by: user?.id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        await loadZones();
+      } else {
+        // Mode démo
+        const newZone: Zone = {
+          id: Date.now().toString(),
+          name: zoneData.name,
+          coordinates: zoneData.coordinates,
+          type: zoneData.type,
+          isActive: true
+        };
+        setZones(prev => [newZone, ...prev]);
+      }
+    } catch (error) {
+      console.error('Erreur ajout zone:', error);
+      throw error;
+    }
+  };
+
+  const updateZone = async (zoneId: string, zoneData: any) => {
+    try {
+      if (isSupabaseConnected) {
+        const { error } = await supabase
+          .from('zones')
+          .update({
+            ...zoneData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', zoneId);
+
+        if (error) throw error;
+        await loadZones();
+      } else {
+        setZones(prev => prev.map(zone => 
+          zone.id === zoneId ? { ...zone, ...zoneData } : zone
+        ));
+      }
+    } catch (error) {
+      console.error('Erreur mise à jour zone:', error);
+      throw error;
+    }
+  };
+
+  const deleteZone = async (zoneId: string) => {
+    try {
+      if (isSupabaseConnected) {
+        const { error } = await supabase
+          .from('zones')
+          .delete()
+          .eq('id', zoneId);
+
+        if (error) throw error;
+        await loadZones();
+      } else {
+        setZones(prev => prev.filter(zone => zone.id !== zoneId));
+      }
+    } catch (error) {
+      console.error('Erreur suppression zone:', error);
+      throw error;
+    }
+  };
+
+  const refreshData = async () => {
+    try {
+      // Actualiser les positions des pirogues de test
+      loadTestPirogueLocations();
+      
+      // Actualiser la météo
+      await loadRealWeather();
+      
+      if (isSupabaseConnected) {
+        await Promise.all([
+          loadZones(),
+          loadFleetStats()
+        ]);
+      }
+    } catch (error) {
+      console.error('Erreur actualisation données:', error);
+    }
+  };
 
   return (
-    <motion.nav 
-      initial={{ width: 280 }}
-      animate={{ width: isCollapsed ? 80 : 280 }}
-      transition={{ duration: 0.3, ease: "easeInOut" }}
-      className="bg-gradient-to-b from-slate-900 to-slate-800 backdrop-blur-xl border-r border-slate-700/50 min-h-screen flex flex-col relative shadow-2xl"
-    >
-      {/* Collapse Toggle */}
-      <motion.button
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-8 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-full p-1.5 shadow-lg hover:shadow-xl transition-all duration-300 z-10"
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-      >
-        {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-      </motion.button>
-
-      {/* Logo and user info */}
-      <div className="p-6 border-b border-slate-700/50">
-        <motion.div 
-          className="flex items-center mb-6"
-          animate={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-        >
-          <div className="relative">
-            <div className="bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl p-3 shadow-lg">
-              <Ship className="w-6 h-6 text-white" />
-            </div>
-            <motion.div
-              className="absolute -bottom-1 -right-1 bg-green-500 rounded-full w-4 h-4 flex items-center justify-center"
-              animate={{ scale: [1, 1.2, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              <Activity className="w-2 h-2 text-white" />
-            </motion.div>
-          </div>
-          
-          <AnimatePresence>
-            {!isCollapsed && (
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -10 }}
-                transition={{ duration: 0.2 }}
-                className="ml-3"
-              >
-                <h1 className="text-xl font-bold text-white">PIROGUE</h1>
-                <div className="flex items-center space-x-1">
-                  <p className="text-sm text-cyan-400 font-semibold">SMART</p>
-                  <Waves className="w-3 h-3 text-cyan-400 animate-pulse" />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-        
-        <AnimatePresence>
-          {user && !isCollapsed && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="bg-gradient-to-r from-slate-800/80 to-slate-700/80 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30"
-            >
-              <div className="flex items-center space-x-3 mb-2">
-                <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full flex items-center justify-center">
-                  <User className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">{user.profile.fullName}</p>
-                  <p className="text-xs text-slate-400 capitalize flex items-center">
-                    <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-1"></span>
-                    {user.role}
-                  </p>
-                </div>
-              </div>
-              {user.profile.boatName && (
-                <div className="flex items-center text-xs text-cyan-400 bg-cyan-500/10 rounded-lg p-2 mt-2">
-                  <Anchor className="w-3 h-3 mr-1" />
-                  <span>{user.profile.boatName}</span>
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Navigation items */}
-      <div className="flex-1 py-6 px-3">
-        <motion.ul className="space-y-2">
-          {navigationItems.map((item, index) => {
-            const Icon = item.icon;
-            const isActive = activeView === item.id;
-            
-            return (
-              <motion.li 
-                key={item.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.1 }}
-              >
-                <motion.button
-                  onClick={() => onViewChange(item.id)}
-                  className={`
-                    w-full flex items-center rounded-xl text-left transition-all duration-300 group relative overflow-hidden
-                    ${isActive 
-                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg' 
-                      : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
-                    }
-                  `}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  style={{ padding: isCollapsed ? '12px' : '12px 16px' }}
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="activeIndicator"
-                      className="absolute inset-0 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl"
-                      initial={false}
-                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                    />
-                  )}
-                  
-                  <motion.div
-                    className="relative flex items-center"
-                    animate={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-                  >
-                    <Icon className="w-5 h-5 relative z-10" />
-                    <AnimatePresence>
-                      {!isCollapsed && (
-                        <motion.span
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -10 }}
-                          transition={{ duration: 0.2 }}
-                          className="text-sm font-medium ml-3 relative z-10"
-                        >
-                          {item.label}
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                  
-                  {/* Hover effect */}
-                  <motion.div
-                    className="absolute inset-0 bg-gradient-to-r from-cyan-600/20 to-blue-600/20 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                </motion.button>
-              </motion.li>
-            );
-          })}
-        </motion.ul>
-      </div>
-
-      {/* Settings and logout */}
-      <div className="border-t border-slate-700/50 p-3">
-        <motion.ul className="space-y-2">
-          <motion.li whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <button
-              onClick={() => onViewChange('settings')}
-              className={`
-                w-full flex items-center rounded-xl text-left transition-all duration-300 group relative
-                ${activeView === 'settings' 
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg' 
-                  : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
-                }
-              `}
-              style={{ padding: isCollapsed ? '12px' : '12px 16px' }}
-            >
-              <motion.div
-                className="relative flex items-center"
-                animate={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-              >
-                <Settings className="w-5 h-5" />
-                <AnimatePresence>
-                  {!isCollapsed && (
-                    <motion.span
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -10 }}
-                      transition={{ duration: 0.2 }}
-                      className="text-sm font-medium ml-3"
-                    >
-                      Paramètres
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            </button>
-          </motion.li>
-          
-          <motion.li whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <button
-              onClick={logout}
-              className="w-full flex items-center rounded-xl text-left text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all duration-300 group"
-              style={{ padding: isCollapsed ? '12px' : '12px 16px' }}
-            >
-              <motion.div
-                className="relative flex items-center"
-                animate={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-              >
-                <LogOut className="w-5 h-5" />
-                <AnimatePresence>
-                  {!isCollapsed && (
-                    <motion.span
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -10 }}
-                      transition={{ duration: 0.2 }}
-                      className="text-sm font-medium ml-3"
-                    >
-                      Déconnexion
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            </button>
-          </motion.li>
-        </motion.ul>
-      </div>
-
-      {/* Gradient overlay for depth */}
-      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-900/20 pointer-events-none"></div>
-    </motion.nav>
+    <DataContext.Provider value={{
+      locations,
+      alerts,
+      messages,
+      weather,
+      zones,
+      trips,
+      users,
+      fleetStats,
+      updateLocation,
+      sendMessage,
+      createAlert,
+      acknowledgeAlert,
+      addUser,
+      updateUser,
+      deleteUser,
+      uploadFile,
+      addZone,
+      updateZone,
+      deleteZone,
+      refreshData,
+      isLoading
+    }}>
+      {children}
+    </DataContext.Provider>
   );
 };
-
-export default Navigation;

@@ -1,316 +1,694 @@
-import React, { useState } from 'react';
-import { Building, Plus, Edit, Trash2, Search, MapPin, Users, Ship, Clock } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '../contexts/AuthContext';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
+import { supabase, supabaseHelpers } from '../lib/supabaseHelpers';
+import { logger } from '../lib/logger';
+import { weatherService } from '../lib/weatherApi';
+import { testPirogues, pirogueSimulator } from '../lib/testData';
+import { Location, Alert, Message, WeatherCondition, Zone, Trip, User } from '../types';
 
-interface Quai {
-  id: string;
-  name: string;
-  location: {
-    latitude: number;
-    longitude: number;
-    address: string;
-  };
-  capacity: number;
-  currentOccupancy: number;
-  facilities: string[];
-  manager: string;
-  operatingHours: {
-    open: string;
-    close: string;
-  };
-  status: 'active' | 'maintenance' | 'closed';
-  fees: {
-    daily: number;
-    monthly: number;
-  };
+interface DataContextType {
+  locations: Location[];
+  alerts: Alert[];
+  messages: Message[];
+  weather: WeatherCondition | null;
+  zones: Zone[];
+  trips: Trip[];
+  users: User[];
+  fleetStats: any;
+  updateLocation: (location: Omit<Location, 'id' | 'timestamp'>) => Promise<void>;
+  sendMessage: (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => Promise<void>;
+  createAlert: (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  acknowledgeAlert: (alertId: string) => Promise<void>;
+  addUser: (userData: any) => Promise<void>;
+  updateUser: (userId: string, userData: any) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
+  uploadFile: (file: File, bucket: string, path: string) => Promise<string>;
+  addZone: (zoneData: any) => Promise<void>;
+  updateZone: (zoneId: string, zoneData: any) => Promise<void>;
+  deleteZone: (zoneId: string) => Promise<void>;
+  refreshData: () => Promise<void>;
+  isLoading: boolean;
 }
 
-const QuaiManagement: React.FC = () => {
-  const { user } = useAuth();
-  const [quais, setQuais] = useState<Quai[]>([
+const DataContext = createContext<DataContextType | undefined>(undefined);
+
+export const useData = () => {
+  const context = useContext(DataContext);
+  if (context === undefined) {
+    throw new Error('useData must be used within a DataProvider');
+  }
+  return context;
+};
+
+// Données de démonstration pour le mode hors ligne
+const mockData = {
+  zones: [
     {
       id: '1',
-      name: 'Quai Principal Cayar',
-      location: {
-        latitude: 14.9325,
-        longitude: -17.1925,
-        address: 'Port de Cayar, Sénégal'
-      },
-      capacity: 50,
-      currentOccupancy: 32,
-      facilities: ['Eau potable', 'Électricité', 'Réparation', 'Carburant', 'Glace'],
-      manager: 'Moussa Diop',
-      operatingHours: {
-        open: '05:00',
-        close: '20:00'
-      },
-      status: 'active',
-      fees: {
-        daily: 2000,
-        monthly: 50000
-      }
+      name: 'Zone de Sécurité Cayar',
+      coordinates: [
+        [14.9225, -17.2025],
+        [14.9225, -17.1825],
+        [14.9425, -17.1825],
+        [14.9425, -17.2025],
+        [14.9225, -17.2025]
+      ] as [number, number][],
+      type: 'safety' as const,
+      isActive: true
     },
     {
       id: '2',
-      name: 'Quai des Pêcheurs',
-      location: {
-        latitude: 14.9300,
-        longitude: -17.1950,
-        address: 'Zone Pêcheurs, Cayar'
-      },
-      capacity: 30,
-      currentOccupancy: 18,
-      facilities: ['Eau potable', 'Stockage', 'Marché'],
-      manager: 'Awa Ndiaye',
-      operatingHours: {
-        open: '04:30',
-        close: '19:00'
-      },
-      status: 'active',
-      fees: {
-        daily: 1500,
-        monthly: 35000
-      }
+      name: 'Zone de Pêche Traditionnelle',
+      coordinates: [
+        [14.9125, -17.2125],
+        [14.9125, -17.1925],
+        [14.9325, -17.1925],
+        [14.9325, -17.2125],
+        [14.9125, -17.2125]
+      ] as [number, number][],
+      type: 'fishing' as const,
+      isActive: true
+    },
+    {
+      id: '3',
+      name: 'Zone Restreinte',
+      coordinates: [
+        [14.9525, -17.1725],
+        [14.9525, -17.1525],
+        [14.9725, -17.1525],
+        [14.9725, -17.1725],
+        [14.9525, -17.1725]
+      ] as [number, number][],
+      type: 'restricted' as const,
+      isActive: true
     }
-  ]);
+  ]
+};
 
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [editingQuai, setEditingQuai] = useState<Quai | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [weather, setWeather] = useState<WeatherCondition | null>(null);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [fleetStats, setFleetStats] = useState<any>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDjangoConnected, setIsDjangoConnected] = useState(false);
 
-  const filteredQuais = quais.filter(quai =>
-    quai.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    quai.location.address.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Vérifier la connexion Django
+  useEffect(() => {
+    checkDjangoConnection();
+  }, []);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800';
-      case 'maintenance': return 'bg-yellow-100 text-yellow-800';
-      case 'closed': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const checkDjangoConnection = async () => {
+    try {
+      const response = await authAPI.getProfile();
+      if (response) {
+        setIsDjangoConnected(true);
+        console.log('✅ Connexion Django établie');
+      }
+    } catch (error) {
+      console.warn('⚠️ Django non disponible, utilisation du mode démo');
+      setIsDjangoConnected(false);
     }
   };
 
-  const getOccupancyColor = (occupancy: number, capacity: number) => {
-    const percentage = (occupancy / capacity) * 100;
-    if (percentage < 50) return 'text-green-600';
-    if (percentage < 80) return 'text-yellow-600';
-    return 'text-red-600';
+  // Charger les données initiales
+  useEffect(() => {
+    if (user) {
+      loadInitialData();
+      
+      // Actualiser les données toutes les 30 secondes
+      const interval = setInterval(refreshData, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user, isDjangoConnected]);
+
+  const loadInitialData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Charger les utilisateurs de test
+      const allUsers = [...testPirogues];
+      if (user && !allUsers.find(u => u.id === user.id)) {
+        allUsers.push(user);
+      }
+      setUsers(allUsers);
+      
+      if (isDjangoConnected) {
+        await Promise.all([
+          loadMessages(),
+          loadAlerts(),
+          loadZones(),
+          loadTrips(),
+          loadFleetStats()
+        ]);
+      } else {
+        // Utiliser les données de démonstration
+        setZones(mockData.zones);
+      }
+      
+      if (!isDjangoConnected) {
+        // Charger les messages et alertes depuis les logs en mode démo
+        loadMessagesFromLogs();
+        loadAlertsFromLogs();
+      }
+      
+      // Charger les positions des pirogues de test
+      loadTestPirogueLocations();
+      
+      // Charger la météo réelle
+      await loadRealWeather();
+    } catch (error) {
+      console.error('Erreur chargement données:', error);
+      setZones(mockData.zones);
+      setUsers(testPirogues);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadMessages = async () => {
+    try {
+      const data = await communicationAPI.getMessages();
+      const transformedMessages = data.map((msg: any) => ({
+        id: msg.id,
+        senderId: msg.sender,
+        receiverId: msg.receiver,
+        content: msg.content,
+        type: msg.message_type,
+        timestamp: msg.created_at,
+        isRead: msg.is_read,
+        metadata: msg.metadata
+      }));
+      setMessages(transformedMessages);
+    } catch (error) {
+      console.error('Erreur chargement messages:', error);
+      loadMessagesFromLogs();
+    }
+  };
+
+  const loadAlerts = async () => {
+    try {
+      const data = await alertsAPI.getAlerts();
+      const transformedAlerts = data.map((alert: any) => ({
+        id: alert.id,
+        userId: alert.user,
+        type: alert.alert_type,
+        message: alert.message,
+        severity: alert.severity,
+        status: alert.status,
+        createdAt: alert.created_at,
+        location: alert.location ? {
+          id: alert.location.id,
+          userId: alert.user,
+          latitude: alert.location.latitude,
+          longitude: alert.location.longitude,
+          timestamp: alert.location.timestamp,
+          speed: alert.location.speed,
+          heading: alert.location.heading
+        } : undefined,
+        metadata: alert.metadata
+      }));
+      setAlerts(transformedAlerts);
+    } catch (error) {
+      console.error('Erreur chargement alertes:', error);
+      loadAlertsFromLogs();
+    }
+  };
+
+  const loadMessagesFromLogs = () => {
+    const loggedMessages = logger.getRecentMessages('general', 100);
+    const transformedMessages = loggedMessages.map(log => ({
+      id: log.id,
+      senderId: log.content.senderId,
+      receiverId: log.content.receiverId,
+      channelId: log.content.channelId,
+      content: log.content.content,
+      type: log.content.type,
+      timestamp: log.timestamp,
+      isRead: log.content.isRead || false,
+      metadata: log.metadata
+    }));
+    setMessages(transformedMessages);
+  };
+
+  const loadAlertsFromLogs = () => {
+    const loggedAlerts = logger.getRecentAlerts(50);
+    const transformedAlerts = loggedAlerts.map(log => ({
+      id: log.id,
+      userId: log.content.userId,
+      type: log.content.type,
+      message: log.content.message,
+      severity: log.content.severity,
+      status: log.content.status || 'active',
+      createdAt: log.timestamp,
+      location: log.content.location,
+      metadata: log.metadata
+    }));
+    setAlerts(transformedAlerts);
+  };
+
+  const loadTestPirogueLocations = () => {
+    const positions = pirogueSimulator.getCurrentPositions();
+    setLocations(positions);
+  };
+
+  const loadRealWeather = async () => {
+    try {
+      const weatherData = await weatherService.getCurrentWeather();
+      setWeather(weatherData);
+      console.log('🌤️ Météo chargée:', weatherData);
+    } catch (error) {
+      console.error('Erreur chargement météo:', error);
+    }
+  };
+
+  const loadZones = async () => {
+    try {
+      const data = await zonesAPI.getZones();
+      const transformedZones = data.map((zone: any) => ({
+        id: zone.id,
+        name: zone.name,
+        coordinates: zone.coordinates?.coordinates?.[0]?.map((coord: number[]) => [coord[1], coord[0]]) || [],
+        type: zone.zone_type,
+        isActive: zone.is_active
+      }));
+      setZones(transformedZones);
+    } catch (error) {
+      console.error('Erreur chargement zones:', error);
+      setZones(mockData.zones);
+    }
+  };
+
+  const loadTrips = async () => {
+    try {
+      if (user) {
+        const data = await trackingAPI.getTrips(user.id);
+        const transformedTrips = data.map((trip: any) => ({
+          id: trip.id,
+          userId: trip.user,
+          startTime: trip.start_time,
+          endTime: trip.end_time,
+          startLocation: {
+            id: trip.start_location?.id || '',
+            userId: trip.user,
+            latitude: trip.start_location?.latitude || 14.9325,
+            longitude: trip.start_location?.longitude || -17.1925,
+            timestamp: trip.start_time,
+            speed: 0,
+            heading: 0
+          },
+          distance: trip.distance_km || 0,
+          maxSpeed: trip.max_speed || 0,
+          avgSpeed: trip.avg_speed || 0
+        }));
+        setTrips(transformedTrips);
+      }
+    } catch (error) {
+      console.error('Erreur chargement sorties:', error);
+    }
+  };
+
+  const loadFleetStats = async () => {
+    try {
+      if (user?.role === 'admin' || user?.role === 'organization') {
+        const locations = await trackingAPI.getLocations();
+        const alerts = await alertsAPI.getAlerts();
+        
+        const activeBoats = new Set(locations.map((loc: any) => loc.user)).size;
+        const activeAlerts = alerts.filter((alert: any) => alert.status === 'active').length;
+        
+        setFleetStats({
+          activeBoats,
+          activeAlerts,
+          totalLocations: locations.length
+        });
+      }
+    } catch (error) {
+      console.error('Erreur chargement statistiques:', error);
+    }
+  };
+
+  // Actions
+  const updateLocation = async (location: Omit<Location, 'id' | 'timestamp'>) => {
+    try {
+      if (isDjangoConnected) {
+        await trackingAPI.updateLocation({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          speed: location.speed,
+          heading: location.heading,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Toujours mettre à jour les positions locales
+      const newLocation: Location = {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        ...location
+      };
+      setLocations(prev => [newLocation, ...prev.slice(0, 99)]);
+    } catch (error) {
+      console.error('Erreur mise à jour position:', error);
+    }
+  };
+
+  const sendMessage = async (message: Omit<Message, 'id' | 'timestamp' | 'isRead'>) => {
+    try {
+      let messageId: string;
+      
+      if (isSupabaseConnected) {
+        // Envoyer à Supabase
+        const dbMessage = await supabaseHelpers.insertMessage(message);
+        messageId = dbMessage.id;
+        console.log('💬 Message envoyé à Supabase');
+      } else {
+        // Fallback vers logs
+        messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+        console.log('💬 Message loggé en mode démo');
+      }
+      if (isDjangoConnected) {
+        // Envoyer à Django
+        const response = await communicationAPI.sendMessage({
+          sender: message.senderId,
+          receiver: message.receiverId,
+          content: message.content,
+          message_type: message.type,
+          metadata: message.metadata
+        });
+        messageId = response.id;
+        console.log('💬 Message envoyé à Django');
+      } else {
+        // Fallback vers logs
+        messageId = logger.logMessage(message.senderId, message);
+        console.log('💬 Message loggé en mode démo');
+      }
+      
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      
+      setMessages(prev => [...prev, newMessage]);
+      
+      if (!isSupabaseConnected) {
+        // Simuler la réception en temps réel pour les autres utilisateurs
+        setTimeout(() => {
+          loadMessagesFromLogs();
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Erreur envoi message:', error);
+      // Fallback vers logs en cas d'erreur Supabase
+      const messageId = logger.logMessage(message.senderId, message, { channelId: message.channelId });
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      setMessages(prev => [...prev, newMessage]);
+      // Fallback vers logs en cas d'erreur Django
+      const messageId = logger.logMessage(message.senderId, message);
+      const newMessage: Message = {
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+        ...message
+      };
+      setMessages(prev => [...prev, newMessage]);
+    }
+  };
+
+  const createAlert = async (alert: Omit<Alert, 'id' | 'createdAt' | 'status'>) => {
+    try {
+      let alertId: string;
+      
+      if (isDjangoConnected) {
+        // Envoyer à Django
+        const response = await alertsAPI.createAlert({
+          user: alert.userId,
+          alert_type: alert.type,
+          title: alert.message,
+          message: alert.message,
+          severity: alert.severity,
+          location: alert.location ? {
+            latitude: alert.location.latitude,
+            longitude: alert.location.longitude,
+            speed: alert.location.speed,
+            heading: alert.location.heading,
+            timestamp: alert.location.timestamp
+          } : null,
+          metadata: alert.metadata
+        });
+        alertId = response.id;
+        console.log('🚨 Alerte envoyée à Django');
+      } else {
+        // Fallback vers logs
+        alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+        console.log('🚨 Alerte loggée en mode démo');
+      }
+      
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      
+      setAlerts(prev => [newAlert, ...prev]);
+    } catch (error) {
+      console.error('Erreur création alerte:', error);
+      let alertId: string;
+      
+      if (isSupabaseConnected) {
+        // Envoyer à Supabase
+        const dbAlert = await supabaseHelpers.insertAlert(alert);
+        alertId = dbAlert.id;
+        console.log('🚨 Alerte envoyée à Supabase');
+      } else {
+        // Fallback vers logs
+        alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+        console.log('🚨 Alerte loggée en mode démo');
+      }
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      setAlerts(prev => [newAlert, ...prev]);
+    }
+
+  const acknowledgeAlert = async (alertId: string) => {
+      // Fallback vers logs en cas d'erreur Supabase
+      const alertId = logger.logAlert(alert.userId, { ...alert, status: 'active' });
+      const newAlert: Alert = {
+        id: alertId,
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        ...alert
+      };
+      setAlerts(prev => [newAlert, ...prev]);
+    try {
+      if (isDjangoConnected) {
+        await alertsAPI.acknowledgeAlert(alertId);
+        console.log('✅ Alerte acquittée via Django');
+      }
+      
+      setAlerts(prev => prev.map(alert => 
+        alert.id === alertId ? { ...alert, status: 'acknowledged' as const } : alert
+      ));
+    } catch (error) {
+      console.error('Erreur acquittement alerte:', error);
+    }
+  };
+
+  const addUser = async (userData: any) => {
+    try {
+      if (isDjangoConnected) {
+        const response = await authAPI.register(userData);
+        const newUser: User = response.user;
+        setUsers(prev => [newUser, ...prev]);
+      } else {
+        // Mode démo
+        const newUser: User = {
+          id: Date.now().toString(),
+          email: userData.email,
+          username: userData.email.split('@')[0],
+          role: userData.role,
+          profile: {
+            fullName: userData.fullName,
+            phone: userData.phone,
+            boatName: userData.boatName,
+            licenseNumber: userData.licenseNumber
+          }
+        };
+        setUsers(prev => [newUser, ...prev]);
+      }
+    } catch (error) {
+      console.error('Erreur ajout utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const updateUser = async (userId: string, userData: any) => {
+    try {
+      if (isDjangoConnected) {
+        await authAPI.updateProfile(userData);
+      }
+      
+      setUsers(prev => prev.map(user => 
+        user.id === userId ? { ...user, profile: { ...user.profile, ...userData } } : user
+      ));
+    } catch (error) {
+      console.error('Erreur mise à jour utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    try {
+      // Note: La suppression d'utilisateur nécessite une API spécifique
+      console.warn('Suppression utilisateur non implémentée côté Django');
+      
+      setUsers(prev => prev.filter(user => user.id !== userId));
+    } catch (error) {
+      console.error('Erreur suppression utilisateur:', error);
+      throw error;
+    }
+  };
+
+  const uploadFile = async (file: File, bucket: string, path: string): Promise<string> => {
+    try {
+      if (isDjangoConnected) {
+        const response = await communicationAPI.uploadFile(file, bucket);
+        return response.file_url;
+      } else {
+        // Mode démo - retourner une URL simulée
+        return URL.createObjectURL(file);
+      }
+    } catch (error) {
+      console.error('Erreur upload fichier:', error);
+      throw error;
+    }
+  };
+
+  const addZone = async (zoneData: any) => {
+    try {
+      if (isDjangoConnected) {
+        await zonesAPI.createZone({
+          name: zoneData.name,
+          description: zoneData.description,
+          zone_type: zoneData.type,
+          coordinates: {
+            type: 'Polygon',
+            coordinates: [zoneData.coordinates]
+          },
+          is_active: true,
+          created_by: user?.id
+        });
+        await loadZones();
+      } else {
+        // Mode démo
+        const newZone: Zone = {
+          id: Date.now().toString(),
+          name: zoneData.name,
+          coordinates: zoneData.coordinates,
+          type: zoneData.type,
+          isActive: true
+        };
+        setZones(prev => [newZone, ...prev]);
+      }
+    } catch (error) {
+      console.error('Erreur ajout zone:', error);
+      throw error;
+    }
+  };
+
+  const updateZone = async (zoneId: string, zoneData: any) => {
+    try {
+      if (isDjangoConnected) {
+        await zonesAPI.updateZone(zoneId, zoneData);
+        await loadZones();
+      } else {
+        setZones(prev => prev.map(zone => 
+          zone.id === zoneId ? { ...zone, ...zoneData } : zone
+        ));
+      }
+    } catch (error) {
+      console.error('Erreur mise à jour zone:', error);
+      throw error;
+    }
+  };
+
+  const deleteZone = async (zoneId: string) => {
+    try {
+      if (isDjangoConnected) {
+        await zonesAPI.deleteZone(zoneId);
+        await loadZones();
+      } else {
+        setZones(prev => prev.filter(zone => zone.id !== zoneId));
+      }
+    } catch (error) {
+      console.error('Erreur suppression zone:', error);
+      throw error;
+    }
+  };
+
+  const refreshData = async () => {
+    try {
+      // Actualiser les positions des pirogues de test
+      loadTestPirogueLocations();
+      
+      // Actualiser la météo
+      await loadRealWeather();
+      
+      if (isDjangoConnected) {
+        await Promise.all([
+          loadMessages(),
+          loadAlerts(),
+          loadZones(),
+          loadFleetStats()
+        ]);
+      }
+    } catch (error) {
+      console.error('Erreur actualisation données:', error);
+    }
   };
 
   return (
-    <div className="p-6 bg-gray-50 min-h-full">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Gestion des Quais de Pêche</h1>
-        <p className="text-gray-600">Gérer les infrastructures portuaires et leur occupation</p>
-      </div>
-
-      {/* Statistiques */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Quais</p>
-              <p className="text-2xl font-bold text-gray-900">{quais.length}</p>
-            </div>
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Building className="w-6 h-6 text-blue-600" />
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Capacité Totale</p>
-              <p className="text-2xl font-bold text-green-600">
-                {quais.reduce((sum, q) => sum + q.capacity, 0)}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <Ship className="w-6 h-6 text-green-600" />
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Occupation</p>
-              <p className="text-2xl font-bold text-yellow-600">
-                {quais.reduce((sum, q) => sum + q.currentOccupancy, 0)}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-              <Users className="w-6 h-6 text-yellow-600" />
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Taux d'Occupation</p>
-              <p className="text-2xl font-bold text-purple-600">
-                {Math.round((quais.reduce((sum, q) => sum + q.currentOccupancy, 0) / quais.reduce((sum, q) => sum + q.capacity, 0)) * 100)}%
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-              <Activity className="w-6 h-6 text-purple-600" />
-            </div>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Header avec actions */}
-      <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Rechercher un quai..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-            />
-          </div>
-          
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowAddForm(true)}
-            className="bg-gradient-to-r from-cyan-600 to-blue-600 text-white px-6 py-2 rounded-lg hover:from-cyan-700 hover:to-blue-700 transition-all duration-300 flex items-center space-x-2"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Ajouter un quai</span>
-          </motion.button>
-        </div>
-      </div>
-
-      {/* Grille des quais */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {filteredQuais.map((quai, index) => (
-          <motion.div
-            key={quai.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-            className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow"
-          >
-            <div className="p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-lg flex items-center justify-center">
-                    <Building className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{quai.name}</h3>
-                    <p className="text-sm text-gray-600 flex items-center">
-                      <MapPin className="w-3 h-3 mr-1" />
-                      {quai.location.address}
-                    </p>
-                  </div>
-                </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(quai.status)}`}>
-                  {quai.status}
-                </span>
-              </div>
-
-              <div className="space-y-4">
-                {/* Occupation */}
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium text-gray-700">Occupation</span>
-                    <span className={`text-sm font-bold ${getOccupancyColor(quai.currentOccupancy, quai.capacity)}`}>
-                      {quai.currentOccupancy}/{quai.capacity}
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${(quai.currentOccupancy / quai.capacity) * 100}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Horaires */}
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600 flex items-center">
-                    <Clock className="w-4 h-4 mr-1" />
-                    Horaires:
-                  </span>
-                  <span className="font-medium">{quai.operatingHours.open} - {quai.operatingHours.close}</span>
-                </div>
-
-                {/* Gestionnaire */}
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Gestionnaire:</span>
-                  <span className="font-medium">{quai.manager}</span>
-                </div>
-
-                {/* Tarifs */}
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <div className="text-xs text-gray-600 mb-1">Tarifs</div>
-                  <div className="flex justify-between text-sm">
-                    <span>Journalier: {quai.fees.daily.toLocaleString()} FCFA</span>
-                    <span>Mensuel: {quai.fees.monthly.toLocaleString()} FCFA</span>
-                  </div>
-                </div>
-
-                {/* Équipements */}
-                <div>
-                  <div className="text-xs text-gray-600 mb-2">Équipements disponibles</div>
-                  <div className="flex flex-wrap gap-1">
-                    {quai.facilities.map((facility, idx) => (
-                      <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                        {facility}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex space-x-2 mt-4 pt-4 border-t border-gray-100">
-                <button
-                  onClick={() => setEditingQuai(quai)}
-                  className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 text-cyan-600 border border-cyan-600 rounded-lg hover:bg-cyan-50 transition-colors"
-                >
-                  <Edit className="w-4 h-4" />
-                  <span>Modifier</span>
-                </button>
-                <button className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-700 hover:to-blue-700 transition-all">
-                  <MapPin className="w-4 h-4" />
-                  <span>Localiser</span>
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    </div>
+    <DataContext.Provider value={{
+      locations,
+      alerts,
+      messages,
+      weather,
+      zones,
+      trips,
+      users,
+      fleetStats,
+      updateLocation,
+      sendMessage,
+      createAlert,
+      acknowledgeAlert,
+      addUser,
+      updateUser,
+      deleteUser,
+      uploadFile,
+      addZone,
+      updateZone,
+      deleteZone,
+      refreshData,
+      isLoading
+    }}>
+      {children}
+    </DataContext.Provider>
   );
 };
-
-export default QuaiManagement;

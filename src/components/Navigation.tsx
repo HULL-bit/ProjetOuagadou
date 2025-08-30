@@ -15,7 +15,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Waves,
-  Activity
+  Activity,
+  MapPin,
+  Camera,
+  History,
+  HelpCircle,
+  Radio,
+  Building
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';

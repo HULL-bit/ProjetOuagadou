@@ -38,7 +38,7 @@ interface MarineWeatherResponse {
 }
 
 class WeatherService {
-  private readonly WEATHER_API_KEY = 'demo_key'; // Remplacer par une vraie clé API
+  private readonly WEATHER_API_KEY = 'MJoNQoDJZuCROZZoaPHzzlxn4s5PPWFXF2Tjl3aC3htvi7geQLGz9A==';
   private readonly WEATHER_API_URL = 'https://api.weatherapi.com/v1';
   private readonly MARINE_API_URL = 'https://api.stormglass.io/v2';
   
@@ -47,7 +47,16 @@ class WeatherService {
   private readonly CAYAR_LON = -17.1925;
 
   async getCurrentWeather() {
-    // Utiliser directement les données simulées pour éviter les erreurs d'API
+    try {
+      const realWeather = await this.fetchRealWeather();
+      if (realWeather) {
+        return this.transformWeatherData(realWeather);
+      }
+    } catch (error) {
+      console.warn('API météo non disponible, utilisation des données simulées');
+    }
+    
+    // Fallback vers les données simulées
     return this.getSimulatedWeather();
   }
 
@@ -74,7 +83,7 @@ class WeatherService {
         `${this.MARINE_API_URL}/weather/point?lat=${this.CAYAR_LAT}&lng=${this.CAYAR_LON}&params=swellHeight,waveHeight&start=${new Date().toISOString()}&end=${new Date(Date.now() + 3600000).toISOString()}`,
         {
           headers: {
-            'Authorization': 'demo_key' // Remplacer par une vraie clé
+            'Authorization': this.WEATHER_API_KEY
           }
         }
       );

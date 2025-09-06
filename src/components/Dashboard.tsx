@@ -9,7 +9,7 @@ import AlertsPanel from './AlertsPanel';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { locations, alerts, weather } = useData();
+  const { locations, alerts, weather, trips, users } = useData();
 
   // Calculate statistics
   const activeBoats = new Set(locations.map(loc => loc.userId)).size;
@@ -144,7 +144,7 @@ const Dashboard: React.FC = () => {
           },
           {
             title: 'Base de Données',
-            value: `${(locations.length + messages.length + alerts.length)} entrées`,
+            value: `${(locations.length + alerts.length)} entrées`,
             icon: TrendingUp,
             color: 'from-purple-500 to-violet-500',
             textColor: 'text-purple-600',
@@ -165,9 +165,9 @@ const Dashboard: React.FC = () => {
     switch (user?.role) {
       case 'fisherman':
         return {
-                  title: `Bienvenue à bord, ${user.profile.full_name}`,
+          title: `Bienvenue à bord, ${user.profile.fullName}`,
         subtitle: 'Votre tableau de bord intelligent pour une navigation moderne et sécurisée',
-        accent: user.profile.boat_name ? `Pirogue ${user.profile.boat_name}` : '',
+        accent: user.profile.boatName ? `Pirogue ${user.profile.boatName}` : '',
           bgImage: 'https://images.pexels.com/photos/1295138/pexels-photo-1295138.jpeg?auto=compress&cs=tinysrgb&w=1920&h=400&fit=crop'
         };
       case 'organization':

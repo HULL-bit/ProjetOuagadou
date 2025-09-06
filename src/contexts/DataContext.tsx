@@ -278,7 +278,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadTrackerDevices = async () => {
     try {
-      const data = await trackingAPI.getDevices();
+      const data = isDjangoConnected ? await trackingAPI.getDevices() : [];
       if (Array.isArray(data)) {
         const transformedDevices = data.map((device: any) => ({
           id: device.id,
@@ -294,11 +294,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           status: device.is_active ? 'En ligne' : 'Hors ligne'
         }));
         setTrackerDevices(transformedDevices);
+      } else if (!isDjangoConnected) {
+        // Créer des dispositifs de test associés aux pirogues
+        const testDevices = users.filter(u => u.role === 'fisherman').map((user, index) => ({
+          id: `device-${user.id}`,
+          deviceId: `00001924600${index + 1}`,
+          deviceType: 'gps_tracker' as const,
+          userId: user.id,
+          imei: `12345678901234${index}`,
+          phoneNumber: user.profile.phone || `+221771234${index}67`,
+          isActive: true,
+          lastCommunication: new Date().toISOString(),
+          batteryLevel: 75 + Math.floor(Math.random() * 25),
+          signalStrength: 3 + Math.floor(Math.random() * 3),
+          status: 'En ligne'
+        }));
+        setTrackerDevices(testDevices);
       } else {
         console.warn('Réponse API tracker devices non-array:', data);
+        setTrackerDevices([]);
       }
     } catch (error) {
       console.error('Erreur chargement dispositifs:', error);
+      setTrackerDevices([]);
     }
   };
 

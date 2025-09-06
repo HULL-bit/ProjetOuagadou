@@ -54,7 +54,7 @@ const GPSTracking: React.FC = () => {
   const loadTrackerDevices = useCallback(async () => {
     try {
       setIsLoading(true);
-      const devices = await trackingAPI.getTrackerDevices();
+      const devices = await trackingAPI.getDevices();
       
       // Transformer les données pour correspondre à notre interface
       const transformedDevices: TrackerDevice[] = devices.map((device: {
@@ -89,8 +89,39 @@ const GPSTracking: React.FC = () => {
       }
     } catch (error) {
       console.error('Erreur chargement dispositifs:', error);
-      // Pas de fallback avec des données simulées - afficher un message d'erreur
-      setTrackerDevices([]);
+      // Fallback avec des données simulées pour la démo
+      const simulatedDevices: TrackerDevice[] = [
+        {
+          id: '1',
+          deviceId: '000019246001',
+          deviceType: 'gps_tracker',
+          userId: 'test-pirogue-1',
+          imei: '123456789012345',
+          phoneNumber: '+221771234567',
+          isActive: true,
+          lastCommunication: new Date().toISOString(),
+          batteryLevel: 85,
+          signalStrength: 4,
+          status: 'En ligne'
+        },
+        {
+          id: '2',
+          deviceId: '000019246002',
+          deviceType: 'gps_tracker',
+          userId: 'test-pirogue-2',
+          imei: '123456789012346',
+          phoneNumber: '+221771234568',
+          isActive: true,
+          lastCommunication: new Date().toISOString(),
+          batteryLevel: 92,
+          signalStrength: 5,
+          status: 'En ligne'
+        }
+      ];
+      setTrackerDevices(simulatedDevices);
+      if (!selectedDevice) {
+        setSelectedDevice(simulatedDevices[0]);
+      }
     } finally {
       setIsLoading(false);
     }

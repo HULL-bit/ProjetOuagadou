@@ -15,11 +15,11 @@ const ProfileSettings: React.FC = () => {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   
   const [profileData, setProfileData] = useState({
-    fullName: user?.profile.fullName || '',
-    phone: user?.profile.phone || '',
-    boatName: user?.profile.boatName || '',
-    licenseNumber: user?.profile.licenseNumber || '',
-    avatar: user?.profile.avatar || ''
+    fullName: user?.profile?.fullName || '',
+    phone: user?.profile?.phone || '',
+    boatName: user?.profile?.boatName || '',
+    licenseNumber: user?.profile?.licenseNumber || '',
+    avatar: user?.profile?.avatar || ''
   });
 
   const [passwordData, setPasswordData] = useState({
@@ -48,6 +48,7 @@ const ProfileSettings: React.FC = () => {
       setIsEditing(false);
     } catch (error) {
       console.error('Erreur lors de la sauvegarde:', error);
+      alert('Erreur lors de la sauvegarde du profil');
     } finally {
       setIsSaving(false);
     }

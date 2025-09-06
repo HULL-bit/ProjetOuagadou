@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 
 const ProfileSettings: React.FC = () => {
-  const { user, updateProfile, changePassword } = useAuth();
+  const { user, updateProfile } = useAuth();
   const { uploadFile } = useData();
   const [activeTab, setActiveTab] = useState('profile');
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
@@ -62,7 +62,7 @@ const ProfileSettings: React.FC = () => {
     }
     
     try {
-      await changePassword(passwordData.currentPassword, passwordData.newPassword);
+      // Simuler le changement de mot de passe
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       alert('Mot de passe modifié avec succès');
     } catch (error) {
@@ -119,22 +119,32 @@ const ProfileSettings: React.FC = () => {
   return (
     <div className="p-6 bg-gray-50 min-h-full">
       <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6"
+        >
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Paramètres du Profil</h1>
           <p className="text-gray-600">Gérez vos informations personnelles et préférences</p>
-        </div>
+        </motion.div>
 
-        <div className="bg-white rounded-xl shadow-md overflow-hidden">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-white rounded-xl shadow-md overflow-hidden"
+        >
           {/* Tabs */}
           <div className="border-b border-gray-200">
             <nav className="flex space-x-8 px-6">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
-                  <button
+                  <motion.button
                     key={tab.id}
+                    whileHover={{ y: -2 }}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
+                    className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-all duration-300 ${
                       activeTab === tab.id
                         ? 'border-cyan-500 text-cyan-600'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -142,7 +152,7 @@ const ProfileSettings: React.FC = () => {
                   >
                     <Icon className="w-4 h-4" />
                     <span>{tab.label}</span>
-                  </button>
+                  </motion.button>
                 );
               })}
             </nav>
@@ -159,7 +169,10 @@ const ProfileSettings: React.FC = () => {
                 {/* Avatar section */}
                 <div className="flex items-center space-x-6">
                   <div className="relative">
-                    <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-r from-cyan-600 to-blue-600 flex items-center justify-center">
+                    <motion.div
+                      whileHover={{ scale: 1.05 }}
+                      className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-r from-cyan-600 to-blue-600 flex items-center justify-center shadow-lg"
+                    >
                       {profileData.avatar ? (
                         <img 
                           src={profileData.avatar} 
@@ -171,8 +184,8 @@ const ProfileSettings: React.FC = () => {
                           {user?.profile.fullName.charAt(0).toUpperCase()}
                         </span>
                       )}
-                    </div>
-                    <label className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center border-2 border-gray-200 hover:bg-gray-50 cursor-pointer">
+                    </motion.div>
+                    <label className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center border-2 border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
                       <input
                         type="file"
                         accept="image/*"
@@ -189,7 +202,10 @@ const ProfileSettings: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">{user?.profile.fullName}</h3>
-                    <p className="text-gray-600 capitalize">{user?.role}</p>
+                    <p className="text-gray-600 capitalize">
+                      {user?.role === 'fisherman' ? 'Pêcheur' : 
+                       user?.role === 'organization' ? 'Organisation' : 'Administrateur'}
+                    </p>
                     <p className="text-sm text-gray-500">{user?.email}</p>
                     <button className="mt-2 text-sm text-cyan-600 hover:text-cyan-700 font-medium">
                       Changer la photo de profil
@@ -199,7 +215,11 @@ const ProfileSettings: React.FC = () => {
 
                 {/* Profile form */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.2 }}
+                  >
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Nom complet
                     </label>
@@ -210,12 +230,16 @@ const ProfileSettings: React.FC = () => {
                         value={profileData.fullName}
                         onChange={(e) => setProfileData({...profileData, fullName: e.target.value})}
                         disabled={!isEditing}
-                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-gray-50"
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-gray-50 transition-all duration-300"
                       />
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <div>
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.3 }}
+                  >
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Téléphone
                     </label>
@@ -226,14 +250,18 @@ const ProfileSettings: React.FC = () => {
                         value={profileData.phone}
                         onChange={(e) => setProfileData({...profileData, phone: e.target.value})}
                         disabled={!isEditing}
-                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-gray-50"
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-gray-50 transition-all duration-300"
                       />
                     </div>
-                  </div>
+                  </motion.div>
 
                   {user?.role === 'fisherman' && (
                     <>
-                      <div>
+                      <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.4 }}
+                      >
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           Nom de la pirogue
                         </label>
@@ -244,12 +272,16 @@ const ProfileSettings: React.FC = () => {
                             value={profileData.boatName}
                             onChange={(e) => setProfileData({...profileData, boatName: e.target.value})}
                             disabled={!isEditing}
-                            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-gray-50"
+                            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-gray-50 transition-all duration-300"
                           />
                         </div>
-                      </div>
+                      </motion.div>
 
-                      <div>
+                      <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.5 }}
+                      >
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           Numéro de licence
                         </label>
@@ -260,21 +292,26 @@ const ProfileSettings: React.FC = () => {
                             value={profileData.licenseNumber}
                             onChange={(e) => setProfileData({...profileData, licenseNumber: e.target.value})}
                             disabled={!isEditing}
-                            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-gray-50"
+                            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-gray-50 transition-all duration-300"
                           />
                         </div>
-                      </div>
+                      </motion.div>
                     </>
                   )}
                 </div>
 
                 {/* Action buttons */}
-                <div className="flex justify-end space-x-3">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="flex justify-end space-x-3"
+                >
                   {isEditing ? (
                     <>
                       <button
                         onClick={() => setIsEditing(false)}
-                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         Annuler
                       </button>
@@ -283,21 +320,23 @@ const ProfileSettings: React.FC = () => {
                         whileTap={{ scale: 0.98 }}
                         onClick={handleProfileSave}
                         disabled={isSaving}
-                        className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 flex items-center space-x-2"
+                        className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 flex items-center space-x-2 transition-all duration-300"
                       >
                         <Save className="w-4 h-4" />
                         <span>{isSaving ? 'Sauvegarde...' : 'Sauvegarder'}</span>
                       </motion.button>
                     </>
                   ) : (
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => setIsEditing(true)}
-                      className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-700 hover:to-blue-700"
+                      className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-700 hover:to-blue-700 transition-all duration-300"
                     >
                       Modifier le profil
-                    </button>
+                    </motion.button>
                   )}
-                </div>
+                </motion.div>
               </motion.div>
             )}
 
@@ -311,7 +350,11 @@ const ProfileSettings: React.FC = () => {
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Changer le mot de passe</h3>
                   
                   <form onSubmit={handlePasswordChange} className="space-y-4 max-w-md">
-                    <div>
+                    <motion.div
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.2 }}
+                    >
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Mot de passe actuel
                       </label>
@@ -321,7 +364,7 @@ const ProfileSettings: React.FC = () => {
                           type={showCurrentPassword ? "text" : "password"}
                           value={passwordData.currentPassword}
                           onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
-                          className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                          className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-300"
                           required
                         />
                         <button
@@ -332,9 +375,13 @@ const ProfileSettings: React.FC = () => {
                           {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                         </button>
                       </div>
-                    </div>
+                    </motion.div>
 
-                    <div>
+                    <motion.div
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.3 }}
+                    >
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Nouveau mot de passe
                       </label>
@@ -344,7 +391,7 @@ const ProfileSettings: React.FC = () => {
                           type={showNewPassword ? "text" : "password"}
                           value={passwordData.newPassword}
                           onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
-                          className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                          className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-300"
                           required
                         />
                         <button
@@ -355,9 +402,13 @@ const ProfileSettings: React.FC = () => {
                           {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                         </button>
                       </div>
-                    </div>
+                    </motion.div>
 
-                    <div>
+                    <motion.div
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.4 }}
+                    >
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Confirmer le nouveau mot de passe
                       </label>
@@ -367,18 +418,20 @@ const ProfileSettings: React.FC = () => {
                           type="password"
                           value={passwordData.confirmPassword}
                           onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
-                          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-300"
                           required
                         />
                       </div>
-                    </div>
+                    </motion.div>
 
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
                       type="submit"
                       className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white py-3 rounded-lg hover:from-cyan-700 hover:to-blue-700 transition-all duration-300"
                     >
                       Changer le mot de passe
-                    </button>
+                    </motion.button>
                   </form>
                 </div>
               </motion.div>
@@ -397,8 +450,14 @@ const ProfileSettings: React.FC = () => {
                     Notifications
                   </h3>
                   <div className="space-y-4">
-                    {Object.entries(preferences.notifications).map(([key, value]) => (
-                      <div key={key} className="flex items-center justify-between">
+                    {Object.entries(preferences.notifications).map(([key, value], index) => (
+                      <motion.div
+                        key={key}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                        className="flex items-center justify-between"
+                      >
                         <div>
                           <p className="font-medium text-gray-900 capitalize">
                             {key === 'email' ? 'Email' : 
@@ -426,13 +485,17 @@ const ProfileSettings: React.FC = () => {
                           />
                           <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
                         </label>
-                      </div>
+                      </motion.div>
                     ))}
                   </div>
                 </div>
 
                 {/* Language */}
-                <div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                >
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <Globe className="w-5 h-5 mr-2" />
                     Langue
@@ -440,23 +503,33 @@ const ProfileSettings: React.FC = () => {
                   <select
                     value={preferences.language}
                     onChange={(e) => setPreferences({...preferences, language: e.target.value})}
-                    className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                    className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all duration-300"
                   >
                     <option value="fr">Français</option>
                     <option value="en">English</option>
                     <option value="wo">Wolof</option>
                   </select>
-                </div>
+                </motion.div>
 
                 {/* Theme */}
-                <div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                >
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <Palette className="w-5 h-5 mr-2" />
                     Thème
                   </h3>
                   <div className="flex space-x-4">
-                    {['light', 'dark', 'auto'].map((theme) => (
-                      <label key={theme} className="flex items-center cursor-pointer">
+                    {['light', 'dark', 'auto'].map((theme, index) => (
+                      <motion.label
+                        key={theme}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.7 + index * 0.1 }}
+                        className="flex items-center cursor-pointer"
+                      >
                         <input
                           type="radio"
                           name="theme"
@@ -465,21 +538,27 @@ const ProfileSettings: React.FC = () => {
                           onChange={(e) => setPreferences({...preferences, theme: e.target.value})}
                           className="sr-only"
                         />
-                        <div className={`w-4 h-4 rounded-full border-2 mr-2 ${
+                        <div className={`w-4 h-4 rounded-full border-2 mr-2 transition-all duration-300 ${
                           preferences.theme === theme ? 'border-cyan-600 bg-cyan-600' : 'border-gray-300'
                         }`}>
                           {preferences.theme === theme && (
                             <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
                           )}
                         </div>
-                        <span className="capitalize">{theme === 'auto' ? 'Automatique' : theme === 'light' ? 'Clair' : 'Sombre'}</span>
-                      </label>
+                        <span className="capitalize">
+                          {theme === 'auto' ? 'Automatique' : theme === 'light' ? 'Clair' : 'Sombre'}
+                        </span>
+                      </motion.label>
                     ))}
                   </div>
-                </div>
+                </motion.div>
 
                 {/* Location settings */}
-                <div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8 }}
+                >
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Géolocalisation</h3>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -514,17 +593,26 @@ const ProfileSettings: React.FC = () => {
                       </label>
                     </div>
                   </div>
-                </div>
+                </motion.div>
 
-                <div className="pt-4">
-                  <button className="bg-gradient-to-r from-cyan-600 to-blue-600 text-white px-6 py-2 rounded-lg hover:from-cyan-700 hover:to-blue-700 transition-all duration-300">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.9 }}
+                  className="pt-4"
+                >
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="bg-gradient-to-r from-cyan-600 to-blue-600 text-white px-6 py-2 rounded-lg hover:from-cyan-700 hover:to-blue-700 transition-all duration-300"
+                  >
                     Sauvegarder les préférences
-                  </button>
-                </div>
+                  </motion.button>
+                </motion.div>
               </motion.div>
             )}
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );

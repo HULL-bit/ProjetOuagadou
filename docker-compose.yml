@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15
+    container_name: pirogue_smart_db
+    environment:
+      POSTGRES_DB: pirogue_smart
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pirogue_network
+    restart: unless-stopped
+
+  # Redis pour les channels et Celery
+  redis:
+    image: redis:7-alpine
+    container_name: pirogue_smart_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - pirogue_network
+    restart: unless-stopped
+
+  # Backend Django
+  backend:
+    build:
+      context: ./project/backend
+      dockerfile: Dockerfile
+    container_name: pirogue_smart_backend
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-change-me-in-production
+      - DB_NAME=pirogue_smart
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379
+      - CORS_ALLOW_ALL_ORIGINS=True
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./project/backend:/app
+      - backend_static:/app/staticfiles
+      - backend_media:/app/media
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - pirogue_network
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  # Frontend React
+  frontend:
+    build:
+      context: ./project
+      dockerfile: Dockerfile
+    container_name: pirogue_smart_frontend
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./project/src:/app/src
+      - ./project/public:/app/public
+    depends_on:
+      - backend
+    networks:
+      - pirogue_network
+    restart: unless-stopped
+    command: npm run dev -- --host 0.0.0.0
+
+  # Celery Worker (optionnel)
+  celery:
+    build:
+      context: ./project/backend
+      dockerfile: Dockerfile
+    container_name: pirogue_smart_celery
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-change-me-in-production
+      - DB_NAME=pirogue_smart
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./project/backend:/app
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - pirogue_network
+    restart: unless-stopped
+    command: celery -A pirogue_smart worker --loglevel=info
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_static:
+  backend_media:
+
+networks:
+  pirogue_network:
+    driver: bridge
